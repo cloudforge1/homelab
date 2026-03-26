@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # Root package.json
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      dev-dependencies:
+        patterns:
+          - "@types/*"
+          - "typescript"
+          - "eslint*"
+          - "prettier"
+
+  # Expo app
+  - package-ecosystem: "npm"
+    directory: "/apps/expo"
+    schedule:
+      interval: "weekly"
+    groups:
+      expo:
+        patterns:
+          - "expo*"
+          - "@expo/*"
+      react-native:
+        patterns:
+          - "react-native*"
+          - "@react-native/*"
+
+  # Capacitor app
+  - package-ecosystem: "npm"
+    directory: "/apps/capacitor"
+    schedule:
+      interval: "weekly"
+    groups:
+      capacitor:
+        patterns:
+          - "@capacitor/*"
+      vite:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+
+  # NativeScript app
+  - package-ecosystem: "npm"
+    directory: "/apps/nativescript"
+    schedule:
+      interval: "weekly"
+    groups:
+      nativescript:
+        patterns:
+          - "@nativescript/*"
+          - "nativescript-*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
