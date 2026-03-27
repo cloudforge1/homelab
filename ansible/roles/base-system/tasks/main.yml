@@ -1,0 +1,109 @@
+---
+# Base system provisioning for cf0
+# APT packages, Docker engine, NVIDIA container toolkit, daemon config
+
+- name: Install base APT packages
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - git
+      - curl
+      - wget
+      - jq
+      - htop
+      - tmux
+      - unzip
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - python3-pip
+      - python3-venv
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+  tags: [base-system, apt]
+
+- name: Install Docker packages
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: yes
+  tags: [base-system, docker]
+
+- name: Configure Docker daemon
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ docker_daemon_options | to_nice_json }}"
+    mode: '0644'
+  notify: restart docker
+  tags: [base-system, docker]
+
+- name: Ensure Docker service is running and enabled
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  tags: [base-system, docker]
+
+- name: Add admin user to docker group
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: docker
+    append: true
+  tags: [base-system, docker]
+
+- name: Configure NOPASSWD sudo for admin user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags: [base-system, sudo]
+
+- name: Install NVIDIA container toolkit
+  when: gpu_enabled | default(false) | bool
+  block:
+    - name: Add NVIDIA container toolkit GPG key
+      ansible.builtin.apt_key:
+        url: https://nvidia.github.io/libnvidia-container/gpgkey
+        state: present
+
+    - name: Add NVIDIA container toolkit repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://nvidia.github.io/libnvidia-container/stable/deb/{{ ansible_architecture }} /"
+        filename: nvidia-container-toolkit
+        state: present
+
+    - name: Install NVIDIA container toolkit package
+      ansible.builtin.apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: yes
+
+    - name: Configure NVIDIA runtime for Docker
+      ansible.builtin.command:
+        cmd: nvidia-ctk runtime configure --runtime=docker
+      notify: restart docker
+      register: nvidia_ctk_result
+      changed_when: "'already configured' not in nvidia_ctk_result.stdout | default('')"
+  tags: [base-system, nvidia]
+
+- name: Create homelab base directory
+  ansible.builtin.file:
+    path: "{{ homelab_base_path }}"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0755'
+  tags: [base-system, directories]
+
+- name: Create compose directory
+  ansible.builtin.file:
+    path: "{{ compose_path }}"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0755'
+  tags: [base-system, directories]

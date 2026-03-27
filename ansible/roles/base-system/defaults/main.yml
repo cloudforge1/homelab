@@ -1,0 +1,21 @@
+---
+# Defaults for base-system role
+# Override in group_vars/all.yml or inventory
+
+# APT base packages (always installed)
+base_system_packages:
+  - build-essential
+  - git
+  - curl
+  - wget
+  - jq
+  - htop
+  - tmux
+  - unzip
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - python3-pip
+  - python3-venv
