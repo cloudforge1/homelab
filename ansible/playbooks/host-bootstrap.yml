@@ -1,0 +1,59 @@
+---
+# cf0 Host Bootstrap Playbook
+# Provisions the bare-metal system: APT packages, Docker, NVIDIA, sysctl, UFW
+#
+# Run ONCE on fresh install, or re-run to enforce configuration drift.
+# This is separate from setup.yml (which deploys compose stacks).
+#
+# Usage:
+#   ansible-playbook playbooks/host-bootstrap.yml           # Full bootstrap
+#   ansible-playbook playbooks/host-bootstrap.yml --check   # Dry run
+#   ansible-playbook playbooks/host-bootstrap.yml --tags docker   # Docker only
+#   ansible-playbook playbooks/host-bootstrap.yml --tags ufw      # Firewall only
+
+- name: Bootstrap cf0 Host System
+  hosts: cf0
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  pre_tasks:
+    - name: Verify running on target host
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname is defined
+        fail_msg: "Cannot determine hostname — check connectivity"
+      tags: [always, preflight]
+
+    - name: Display bootstrap info
+      ansible.builtin.debug:
+        msg:
+          - "═══ Host Bootstrap: {{ ansible_hostname }} ═══"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "RAM: {{ (ansible_memtotal_mb / 1024) | round(1) }}GB"
+          - "CPUs: {{ ansible_processor_vcpus }} threads"
+      tags: [always, preflight]
+
+  roles:
+    - role: base-system
+      tags: [base-system]
+    - role: system-tuning
+      tags: [system-tuning]
+
+  post_tasks:
+    - name: Display bootstrap summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "  Host Bootstrap Complete"
+          - "═══════════════════════════════════════════════════════════"
+          - ""
+          - "  Base System: APT packages, Docker, NVIDIA toolkit"
+          - "  System Tuning: sysctl, limits, UFW, bandwidth shaping"
+          - ""
+          - "  Next: ansible-playbook playbooks/setup.yml"
+          - "═══════════════════════════════════════════════════════════"
+      tags: [always]
