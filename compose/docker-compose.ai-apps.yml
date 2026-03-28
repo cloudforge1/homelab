@@ -1,0 +1,92 @@
+---
+# cf0 Optional AI Applications Stack
+# Flowise, Unsloth Studio, Onyx — all disabled by default
+#
+# Ports:
+#   Flowise:  7861 (avoids 3000 conflict with OpenRAG)
+#   Unsloth:  8888 (Jupyter only; 8000 removed — conflicts with Cognee)
+#   Onyx:     3100
+#
+# Usage:
+#   docker compose -f docker-compose.ai-apps.yml up -d
+#   docker compose -f docker-compose.ai-apps.yml --profile flowise up -d
+#   docker compose -f docker-compose.ai-apps.yml --profile unsloth up -d
+#   docker compose -f docker-compose.ai-apps.yml --profile onyx up -d
+
+name: cf-ai-apps
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ── Flowise — Visual AI agent builder ──────────────────────────
+  flowise:
+    image: flowiseai/flowise:latest
+    container_name: flowise
+    <<: *restart
+    profiles:
+      - flowise
+      - all
+    ports:
+      - "7861:3000"
+    volumes:
+      - flowise-data:/root/.flowise
+    environment:
+      - FLOWISE_USERNAME=${FLOWISE_USERNAME:-}
+      - FLOWISE_PASSWORD=${FLOWISE_PASSWORD:-}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Unsloth Studio — LLM inference/training UI ────────────────
+  # NOTE: GTX 1060 (SM 6.1, Pascal) supports inference/chat only.
+  #       Training requires RTX 30+ series (SM 8.0+, Ampere).
+  unsloth:
+    image: unsloth/unsloth:latest
+    container_name: unsloth
+    <<: *restart
+    profiles:
+      - unsloth
+      - all
+    ports:
+      - "8888:8888"
+    volumes:
+      - unsloth-data:/workspace/work
+    environment:
+      - JUPYTER_PASSWORD=${UNSLOTH_JUPYTER_PASSWORD:-unsloth2026}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          memory: 8G
+
+  # ── Onyx — Open source AI chat platform ────────────────────────
+  # NOTE: Overlaps with Open WebUI and OpenRAG. Disabled by default.
+  onyx:
+    image: onyxdotapp/onyx:latest
+    container_name: onyx
+    <<: *restart
+    profiles:
+      - onyx
+      - all
+    ports:
+      - "3100:3000"
+    volumes:
+      - onyx-data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  flowise-data:
+    name: flowise-data
+  unsloth-data:
+    name: unsloth-data
+  onyx-data:
+    name: onyx-data
