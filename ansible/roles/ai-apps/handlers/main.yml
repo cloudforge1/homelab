@@ -1,0 +1,8 @@
+---
+- name: restart ai-apps
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.ai-apps.yml
+    project_name: cf-ai-apps
+    state: restarted

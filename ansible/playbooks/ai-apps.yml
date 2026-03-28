@@ -1,0 +1,36 @@
+---
+# cf0 Optional AI Applications Playbook
+# Deploys Flowise, Unsloth, Onyx via Docker Compose profiles
+#
+# Each service is gated by its enable_* toggle in group_vars/all.yml.
+# All are DISABLED by default — set enable_flowise/unsloth/onyx: true to deploy.
+#
+# Usage:
+#   ansible-playbook playbooks/ai-apps.yml              # Deploy enabled apps
+#   ansible-playbook playbooks/ai-apps.yml --check       # Dry run
+#   ansible-playbook playbooks/ai-apps.yml --tags ai-apps
+
+- name: Deploy cf0 Optional AI Applications
+  hosts: cf0
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    compose_dir: "{{ compose_path }}"
+
+  roles:
+    - role: ai-apps
+      tags: [ai-apps]
+
+  post_tasks:
+    - name: Display AI apps status
+      ansible.builtin.debug:
+        msg:
+          - "═══ AI Apps Deployment ═══"
+          - "Flowise:  {{ 'http://cf0:7861' if (enable_flowise | default(false) | bool) else 'disabled' }}"
+          - "Unsloth:  {{ 'http://cf0:8888' if (enable_unsloth | default(false) | bool) else 'disabled' }}"
+          - "Onyx:     {{ 'http://cf0:3100' if (enable_onyx | default(false) | bool) else 'disabled' }}"
+      tags: [always]

@@ -1,0 +1,11 @@
+---
+# AI apps defaults — all disabled by default
+# Override in group_vars/all.yml
+enable_flowise: false
+enable_unsloth: false
+enable_onyx: false
+
+# Ports (informational — defined in docker-compose.ai-apps.yml)
+flowise_port: 7861
+unsloth_port: 8888
+onyx_port: 3100

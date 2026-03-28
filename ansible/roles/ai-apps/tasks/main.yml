@@ -1,0 +1,30 @@
+---
+# Deploy optional AI applications via Docker Compose profiles
+# Services: Flowise, Unsloth, Onyx — each gated by enable_* toggle
+
+- name: Build active AI apps profile list
+  ansible.builtin.set_fact:
+    ai_apps_profiles: >-
+      {{
+        (enable_flowise | default(false) | bool) | ternary(['flowise'], []) +
+        (enable_unsloth | default(false) | bool) | ternary(['unsloth'], []) +
+        (enable_onyx | default(false) | bool) | ternary(['onyx'], [])
+      }}
+  tags: [ai-apps]
+
+- name: Skip when no AI apps enabled
+  ansible.builtin.debug:
+    msg: "No AI apps enabled (flowise={{ enable_flowise }}, unsloth={{ enable_unsloth }}, onyx={{ enable_onyx }})"
+  when: ai_apps_profiles | length == 0
+  tags: [ai-apps]
+
+- name: Deploy AI apps via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.ai-apps.yml
+    project_name: cf-ai-apps
+    state: present
+    profiles: "{{ ai_apps_profiles }}"
+  when: ai_apps_profiles | length > 0
+  tags: [ai-apps]
