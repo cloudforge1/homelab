@@ -1,0 +1,6 @@
+---
+openspace_image: cf0-openspace:latest
+openspace_port: 7788
+openspace_cpu_limit: "1.0"
+openspace_memory_limit: 500M
+host_skill_dirs: "{{ admin_home }}/ai-tools/fabro/skills"

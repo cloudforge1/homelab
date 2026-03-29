@@ -1,0 +1,10 @@
+---
+ollama_image: ollama/ollama:latest
+ollama_network: host
+ollama_host: 0.0.0.0:11434
+ollama_num_parallel: 2
+ollama_keep_alive: 30m
+ollama_max_loaded_models: 3
+ollama_flash_attention: 1
+ollama_num_threads: 14
+ollama_volume_path: "{{ admin_home }}/.ollama"

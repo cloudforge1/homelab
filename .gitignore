@@ -1,0 +1,26 @@
+# Deprecated scripts - keep locally, don't push
+.deprecated/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Ansible
+*.retry
+ansible/.vault_pass*
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

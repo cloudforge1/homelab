@@ -1,0 +1,12 @@
+---
+openrag_version: latest
+opensearch_password: "SecurePassword123!"
+opensearch_host: opensearch
+opensearch_port: 9200
+opensearch_username: admin
+opensearch_index_name: documents
+langflow_auto_login: true
+langflow_superuser: admin
+langflow_superuser_password: "AdminPassword123"
+langflow_workers: 1
+frontend_port: 3000

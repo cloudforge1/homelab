@@ -1,0 +1,23 @@
+---
+# Scrutiny role - SMART disk health monitoring
+
+- name: Deploy Scrutiny container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.scrutiny.yml
+    state: present
+    detached: true
+  tags: [scrutiny, deploy]
+
+- name: Wait for Scrutiny API to be healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ scrutiny_port }}/api/health"
+    status_code: 200
+    timeout: 30
+  register: scrutiny_health
+  retries: 5
+  delay: 15
+  until: scrutiny_health.status == 200
+  failed_when: false
+  tags: [scrutiny, healthcheck]

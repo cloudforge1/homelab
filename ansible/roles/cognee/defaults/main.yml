@@ -1,0 +1,6 @@
+---
+cognee_image: cognee-cognee:latest
+cognee_http_port: 8000
+cognee_debug_port: 5678
+cognee_cpu_limit: "4.0"
+cognee_memory_limit: 8GB

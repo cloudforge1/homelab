@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  author: Homelab Admin
+  description: Open WebUI chat interface
+  license: MIT
+  min_ansible_version: "2.14"
+
+dependencies:
+  - role: ollama

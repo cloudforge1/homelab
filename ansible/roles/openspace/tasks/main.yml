@@ -1,0 +1,33 @@
+---
+# OpenSpace role - Skill evolution visualizer
+
+- name: Ensure host skill directory exists
+  ansible.builtin.file:
+    path: "{{ admin_home }}/ai-tools/fabro/skills"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0755'
+  tags: [openspace, config]
+
+- name: Deploy OpenSpace container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.openspace.yml
+    state: present
+    detached: true
+    build: true
+  tags: [openspace, deploy]
+
+- name: Wait for OpenSpace to be healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openspace_port }}/"
+    status_code: [200, 301, 302]
+    timeout: 30
+  register: openspace_health
+  retries: 5
+  delay: 15
+  until: openspace_health.status in [200, 301, 302]
+  failed_when: false
+  tags: [openspace, healthcheck]

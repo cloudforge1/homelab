@@ -1,0 +1,25 @@
+---
+# Open WebUI role - Chat interface
+
+- name: Deploy Open WebUI container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.yml
+    services:
+      - open-webui
+    state: present
+    detached: true
+  tags: [open-webui, deploy]
+
+- name: Wait for Open WebUI to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8080/"
+    status_code: [200, 301, 302]
+    timeout: 10
+  register: webui_health
+  retries: 5
+  delay: 10
+  until: webui_health.status in [200, 301, 302]
+  failed_when: false
+  tags: [open-webui, healthcheck]

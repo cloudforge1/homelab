@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  author: Homelab Admin
+  description: ZeroClaw personal AI assistant
+  license: MIT
+  min_ansible_version: "2.14"
+
+dependencies:
+  - role: ollama

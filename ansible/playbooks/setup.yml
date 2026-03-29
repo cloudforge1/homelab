@@ -1,50 +1,114 @@
 ---
-# System Setup Playbook
-# Installs and configures base system requirements
+# cf0 Full Stack Playbook
+# Equivalent to: bash /opt/homelab/cf0-llm-stack.sh && bash /opt/homelab/cf0-llm-tools.sh
+#
+# Deploys complete LLM + AI Tools infrastructure:
+#   Core: Ollama, Open WebUI, SearXNG
+#   OpenRAG: OpenSearch, Langflow, OpenRAG backend/frontend
+#   Expand: MindsDB, Cognee, ZeroClaw, n8n, nuclio, qdrant, etc.
+#   Monitoring: Scrutiny
+#   Tools: OpenSpace
+#
+# Usage:
+#   ansible-playbook playbooks/setup.yml           # Full deployment
+#   ansible-playbook playbooks/setup.yml --tags ollama  # Just Ollama
+#   ansible-playbook playbooks/setup.yml --check   # Dry run
 
-- name: Setup base system for homelab
-  hosts: homelab
+- name: Deploy cf0 Full Stack
+  hosts: cf0
   become: true
   gather_facts: true
-  
-  pre_tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      tags: [setup, apt]
 
-    - name: Install required system packages
-      apt:
-        name:
-          - curl
-          - wget
-          - git
-          - vim
-          - htop
-          - net-tools
-          - jq
-          - python3-pip
-        state: present
-      tags: [setup, packages]
+  vars:
+    local_user: "{{ admin_user }}"
+    compose_dir: "{{ compose_path }}"
+
+  pre_tasks:
+    - name: Check hardware requirements
+      ansible.builtin.assert:
+        that:
+          - ansible_memtotal_mb >= 100000  # 100GB minimum
+          - ansible_processor_vcpus >= 8
+        fail_msg: "Hardware requirements not met (need 100GB RAM, 8+ vCPUs)"
+      tags: [always, preflight]
+
+    - name: Verify Docker is running
+      ansible.builtin.command: docker info
+      register: docker_info
+      changed_when: false
+      failed_when: docker_info.rc != 0
+      tags: [always, preflight]
+
+    - name: Check NVIDIA GPU (optional)
+      ansible.builtin.command: nvidia-smi
+      register: nvidia_smi
+      failed_when: false
+      changed_when: false
+      tags: [always, preflight]
+
+    - name: Display system info
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ ansible_hostname }}"
+          - "RAM: {{ (ansible_memtotal_mb / 1024) | round(1) }}GB"
+          - "CPUs: {{ ansible_processor_vcpus }} threads"
+          - "GPU: {{ 'NVIDIA detected' if nvidia_smi.rc == 0 else 'No NVIDIA GPU' }}"
+      tags: [always, preflight]
 
   roles:
-    - role: docker
-      tags: [docker, setup]
-    - role: ddns
-      tags: [ddns]
-    - role: llm-stack
-      tags: [llm, stack]
-    - role: serena
-      tags: [serena]
+    # Core LLM stack (docker-compose.yml)
+    - role: ollama
+      tags: [core, ollama]
+    - role: open-webui
+      tags: [core, open-webui]
+    - role: searxng
+      tags: [core, searxng]
+    - role: mindsdb
+      tags: [core, mindsdb]
+    - role: cognee
+      tags: [core, cognee]
+    - role: zeroclaw
+      tags: [core, zeroclaw]
+
+    # OpenRAG stack (docker-compose.openrag.yml)
+    - role: openrag
+      tags: [openrag]
+
+    # Monitoring (docker-compose.scrutiny.yml)
+    - role: scrutiny
+      tags: [monitoring, scrutiny]
+
+    # OpenSpace (docker-compose.openspace.yml)
+    - role: openspace
+      tags: [openspace]
 
   post_tasks:
-    - name: Cleanup apt cache
-      apt:
-        autoclean: yes
-      tags: [cleanup]
-
-    - name: Remove unused packages
-      apt:
-        autoremove: yes
-      tags: [cleanup]
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "  cf0 Stack Deployment Complete"
+          - "═══════════════════════════════════════════════════════════"
+          - ""
+          - "Core Services:"
+          - "  • Ollama:       http://cf0:11434"
+          - "  • Open WebUI:   http://cf0:8080"
+          - "  • SearXNG:      http://cf0:8081"
+          - "  • MindsDB:      http://cf0:47334"
+          - "  • Cognee:       http://cf0:8000"
+          - "  • ZeroClaw:     http://cf0:42617"
+          - ""
+          - "OpenRAG Stack:"
+          - "  • OpenRAG:      http://cf0:{{ frontend_port | default(3000) }}"
+          - "  • Langflow:     http://cf0:7860"
+          - "  • OpenSearch:   https://cf0:9200"
+          - "  • Dashboards:   http://cf0:5601"
+          - ""
+          - "Monitoring:"
+          - "  • Scrutiny:     http://cf0:{{ scrutiny_port | default(7786) }}"
+          - ""
+          - "OpenSpace:"
+          - "  • Dashboard:    http://cf0:{{ openspace_port | default(7788) }}"
+          - ""
+          - "═══════════════════════════════════════════════════════════"
+      tags: [always, summary]

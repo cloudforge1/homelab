@@ -1,0 +1,4 @@
+---
+searxng_image: searxng/searxng:latest
+searxng_port: 8081
+searxng_config_path: "{{ admin_home }}/searxng"

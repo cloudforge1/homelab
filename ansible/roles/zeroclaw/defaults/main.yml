@@ -1,0 +1,6 @@
+---
+zeroclaw_version: v0.5.5
+zeroclaw_install_path: /usr/local/bin/zeroclaw
+zeroclaw_config_path: "{{ admin_home }}/.zeroclaw/config.toml"
+zeroclaw_default_model: qwen3.5:4b
+zeroclaw_ollama_url: http://127.0.0.1:11434

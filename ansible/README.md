@@ -1,174 +1,230 @@
-# Homelab Ansible
+# Homelab Ansible - cf0 Infrastructure as Code
 
-Ansible-based infrastructure as code for managing the homelab environment.
+Ansible-based infrastructure for managing the cf0 homelab server.
 
-## Directory Structure
+## Hardware Profile
 
-```
-ansible/
-├── ansible.cfg              # Ansible configuration
-├── inventory/
-│   └── hosts.yml            # Host inventory
-├── playbooks/
-│   ├── setup.yml            # Full system setup
-│   ├── deploy.yml           # Docker Compose deployment
-│   └── ddns.yml             # DDNS update
-├── roles/
-│   ├── docker/              # Docker installation & config
-│   ├── ddns/                # Cloudflare DDNS
-│   ├── llm-stack/           # LLM services
-│   └── serena/              # Serena service
-├── group_vars/
-│   └── all.yml              # Global variables
-└── files/                   # Script files to deploy
-```
+- **Host:** cf0 (alias: ubu1)
+- **CPU:** Intel i9-9900K (16 threads, AVX2)
+- **RAM:** 107GB
+- **GPU:** NVIDIA GTX 1060 6GB
+- **Storage:** 492GB /home (RAID0)
+- **Network:** 100 Mbps (limited to 50 Mbps during setup)
 
-## Prerequisites
+## Services Deployed
 
-```bash
-# Install Ansible
-pip install ansible
+### Core Stack (`docker-compose.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| Ollama | 11434 | LLM inference runtime |
+| Open WebUI | 8080 | Chat interface |
+| SearXNG | 8081 | Private search engine |
+| MindsDB | 47334/47335 | AI database gateway |
+| Cognee | 8000/5678 | AI memory engine |
+| ZeroClaw | 42617 | Personal AI assistant |
+| RedisInsight | 5540 | Redis GUI |
 
-# Or on Ubuntu/Debian
-sudo apt install ansible
-```
+### OpenRAG Stack (`docker-compose.openrag.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| OpenRAG Frontend | 3000 | RAG UI |
+| Langflow | 7860 | Visual RAG builder |
+| OpenSearch | 9200/9600 | Vector store |
+| OpenSearch Dashboards | 5601 | Analytics dashboard |
+
+### Expand Stack (`docker-compose.expand.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| n8n | 5679 | Workflow automation |
+| Nuclio | 8070 | Serverless functions |
+| Qdrant | 6333/6334 | Vector database |
+| TensorLake | 8900 | Data extraction |
+| Nautilus Trader | 8889 | Algorithmic trading |
+| OpenBB | 6900 | Financial data API |
+| PostgreSQL | 4433 | Shared database |
+
+### Monitoring (`docker-compose.scrutiny.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| Scrutiny | 7786 | SMART disk monitoring |
+
+### OpenSpace (`docker-compose.openspace.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| OpenSpace | 7788 | Skill evolution dashboard |
+
+### Serena (`docker-compose.serena.yml`)
+| Service | Port | Description |
+|---------|------|-------------|
+| Serena MCP | 9121 | Remote repository MCP server |
 
 ## Quick Start
 
 ### 1. Test connectivity
-
 ```bash
 cd ansible
 ansible all -m ping
 ```
 
-### 2. Run full setup
-
+### 2. Deploy full stack
 ```bash
-# Complete system setup (Docker, services, etc.)
 ansible-playbook playbooks/setup.yml
 ```
 
-### 3. Deploy Docker Compose stacks
-
+### 3. Deploy specific services
 ```bash
-# Deploy all compose stacks
-ansible-playbook playbooks/deploy.yml
+# Just Ollama + Open WebUI
+ansible-playbook playbooks/setup.yml --tags ollama,open-webui
 
-# With specific action
-ansible-playbook playbooks/deploy.yml -e "compose_action=restart"
-ansible-playbook playbooks/deploy.yml -e "compose_action=down"
-ansible-playbook playbooks/deploy.yml -e "compose_action=pull"
+# OpenRAG stack only
+ansible-playbook playbooks/openrag-stack.yml
+
+# Monitoring only
+ansible-playbook playbooks/monitoring.yml --tags scrutiny
 ```
 
-### 4. Update DDNS
+### 4. Manage Expand stack
+```bash
+ansible-playbook playbooks/expand-stack.yml
+ansible-playbook playbooks/expand-stack.yml -e "compose_action=restart"
+```
 
+### 5. Update DDNS
 ```bash
 ansible-playbook playbooks/ddns.yml
 ```
 
+## Playbooks
+
+| Playbook | Equivalent Bash Command | Description |
+|----------|------------------------|-------------|
+| `setup.yml` | `cf0-llm-stack.sh` + `cf0-llm-tools.sh` | Full deployment |
+| `llm-stack.yml` | `cf0-stack.sh up` | Core LLM services |
+| `openrag-stack.yml` | `docker compose -f docker-compose.openrag.yml up` | OpenRAG |
+| `expand-stack.yml` | `cf0-stack.sh` (expand) | Additional services |
+| `serena.yml` | `cf0-serena.sh up` | Serena MCP |
+| `monitoring.yml` | `docker compose -f docker-compose.scrutiny.yml up` | Scrutiny |
+| `openspace.yml` | `pnpm openspace:deploy` | OpenSpace |
+| `ddns.yml` | `cf0-ddns.sh` | DDNS update |
+| `llm-tools.yml` | `cf0-llm-tools.sh` | Install tools |
+
 ## Common Commands
 
 ```bash
-# Check current state (dry run)
+# Dry run (check mode)
 ansible-playbook playbooks/setup.yml --check --diff
-
-# Run specific tags only
-ansible-playbook playbooks/setup.yml --tags docker
-ansible-playbook playbooks/setup.yml --tags llm,serena
-
-# Limit to specific host
-ansible-playbook playbooks/setup.yml --limit cf0
 
 # Verbose output
 ansible-playbook playbooks/setup.yml -vvv
 
-# List all tasks
-ansible-playbook playbooks/setup.yml --list-tasks
-
-# List all tags
+# List tags
 ansible-playbook playbooks/setup.yml --list-tags
-```
 
-## Inventory
+# Limit to specific host
+ansible-playbook playbooks/setup.yml --limit cf0
 
-Edit `inventory/hosts.yml` to add or modify hosts:
-
-```yaml
-all:
-  children:
-    homelab:
-      hosts:
-        cf0:
-          ansible_host: 192.168.1.100  # Or hostname
-          ansible_user: r
+# Health check all services
+ansible-playbook playbooks/setup.yml --tags healthcheck
 ```
 
 ## Variables
 
-### Global Variables (`group_vars/all.yml`)
+Edit `group_vars/all.yml` to customize:
 
-- `timezone` - System timezone
-- `admin_user` - Admin username
-- `docker_packages` - Docker packages to install
-- `docker_network_name` - Docker network name
+```yaml
+# OpenRAG credentials
+opensearch_password: "YourSecurePassword!"
+langflow_superuser_password: "YourAdminPassword"
 
-### Role Variables
+# Serena config
+serena_port: 9121
+serena_context: ide
 
-Override in `group_vars/all.yml` or via `-e`:
+# Feature toggles
+enable_zeroclaw: true
+enable_mindsdb: true
+enable_cognee: true
 
-```bash
-# Override LLM stack GPU memory
-ansible-playbook playbooks/setup.yml -e "llm_gpu_memory_reserved=90%"
-
-# Disable Serena deployment
-ansible-playbook playbooks/setup.yml -e "serena_deploy=false"
+# Ollama model sync
+enable_model_qwen35_9b: true
+enable_model_qwen35_122b: false
 ```
 
 ## Secrets Management
 
-For sensitive data (API keys, passwords):
+For sensitive data:
 
 ```bash
 # Create encrypted vault
 ansible-vault create group_vars/vault.yml
 
-# Edit encrypted file
-ansible-vault edit group_vars/vault.yml
-
-# Run playbook with vault password
+# Run with vault password
 ansible-playbook playbooks/setup.yml --ask-vault-pass
+```
+
+## Directory Structure
+
+```
+ansible/
+├── ansible.cfg              # Configuration
+├── README.md                # This file
+├── inventory/
+│   └── hosts.yml            # cf0 host definition
+├── playbooks/
+│   ├── setup.yml            # Full deployment
+│   ├── llm-stack.yml        # Core services
+│   ├── openrag-stack.yml    # OpenRAG
+│   ├── expand-stack.yml     # Additional services
+│   ├── serena.yml           # Serena MCP
+│   ├── monitoring.yml       # Scrutiny
+│   ├── openspace.yml        # OpenSpace
+│   ├── ddns.yml             # DDNS update
+│   └── llm-tools.yml        # Tool installation
+├── roles/
+│   ├── ollama/              # Ollama runtime
+│   ├── open-webui/          # Chat interface
+│   ├── searxng/             # Search engine
+│   ├── openrag/             # OpenRAG platform
+│   ├── mindsdb/             # AI database
+│   ├── cognee/              # Knowledge engine
+│   ├── zeroclaw/            # AI assistant
+│   ├── scrutiny/            # Disk monitoring
+│   └── openspace/           # Skill dashboard
+└── group_vars/
+    └── all.yml              # Global variables
 ```
 
 ## Migration from Bash Scripts
 
-| Bash Script | Ansible Equivalent |
-|-------------|-------------------|
-| `cf0-setup.sh` | `ansible-playbook playbooks/setup.yml` |
-| `cf0-stack.sh` | `ansible-playbook playbooks/deploy.yml` |
-| `cf0-ddns.sh` | `ansible-playbook playbooks/ddns.yml` |
-| `cf0-llm-stack.sh` | `ansible-playbook playbooks/setup.yml --tags llm` |
+| Old Command | New Ansible Command |
+|-------------|---------------------|
+| `bash cf0-llm-stack.sh` | `ansible-playbook playbooks/setup.yml` |
+| `bash cf0-stack.sh up` | `ansible-playbook playbooks/llm-stack.yml` |
+| `bash cf0-serena.sh up` | `ansible-playbook playbooks/serena.yml` |
+| `bash cf0-ddns.sh` | `ansible-playbook playbooks/ddns.yml` |
+| `bash cf0-llm-tools.sh` | `ansible-playbook playbooks/llm-tools.yml` |
 
 ## Benefits Over Bash Scripts
 
 1. **Idempotent** - Safe to run multiple times
-2. **Declarative** - Define desired state, not steps
+2. **Declarative** - Define desired state
 3. **Better error handling** - Clear failure messages
-4. **Rollback support** - Handlers for cleanup
-5. **Parallel execution** - Deploy to multiple hosts
-6. **Templating** - Jinja2 for dynamic configs
-7. **Vault** - Encrypted secrets management
+4. **Tags** - Run specific services only
+5. **Check mode** - Dry run before changes
+6. **Vault** - Encrypted secrets
+7. **Parallel execution** - Deploy to multiple hosts
+8. **Templating** - Jinja2 for dynamic configs
 
 ## Troubleshooting
 
 ```bash
-# Debug connection issues
-ansible all -m setup
+# Debug connection
+ansible cf0 -m setup
 
-# Check what variables are set
-ansible cf0 -m debug -a "var=hostvars"
+# Check variables
+ansible cf0 -m debug -a "var=hostvars[inventory_hostname]"
 
-# Run with maximum verbosity
+# Maximum verbosity
 ansible-playbook playbooks/setup.yml -vvvv
 ```
 

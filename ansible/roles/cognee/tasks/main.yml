@@ -1,0 +1,31 @@
+---
+# Cognee role - AI memory/knowledge engine
+
+- name: Ensure Cognee network exists
+  community.docker.docker_network:
+    name: cognee-network
+    state: present
+  tags: [cognee, network]
+
+- name: Deploy Cognee container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.yml
+    services:
+      - cognee
+    state: present
+    detached: true
+  tags: [cognee, deploy]
+
+- name: Wait for Cognee API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/"
+    status_code: [200, 301, 302, 404]
+    timeout: 30
+  register: cognee_health
+  retries: 5
+  delay: 10
+  until: cognee_health.status in [200, 301, 302, 404]
+  failed_when: false
+  tags: [cognee, healthcheck]

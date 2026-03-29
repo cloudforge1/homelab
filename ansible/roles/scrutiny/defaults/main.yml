@@ -1,0 +1,14 @@
+---
+scrutiny_image: ghcr.io/analogj/scrutiny:master-omnibus
+scrutiny_port: 7786
+scrutiny_internal_port: 8080
+scrutiny_cpu_limit: "0.5"
+scrutiny_memory_limit: 400M
+scrutiny_devices:
+  - /dev/sda
+  - /dev/sdb
+  - /dev/sdc
+  - /dev/sdd
+  - /dev/sde
+  - /dev/sdf
+  - /dev/sdg

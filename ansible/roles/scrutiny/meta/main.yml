@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: Homelab Admin
+  description: Scrutiny SMART disk monitoring
+  license: MIT
+  min_ansible_version: "2.14"
+
+dependencies: []

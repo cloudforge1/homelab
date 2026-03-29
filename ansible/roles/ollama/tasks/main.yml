@@ -1,0 +1,32 @@
+---
+# Ollama role - LLM inference runtime
+
+- name: Ensure Ollama volume exists
+  community.docker.docker_volume:
+    name: open-webui-data
+    state: present
+  tags: [ollama, volume]
+
+- name: Deploy Ollama container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.yml
+    services:
+      - ollama
+      - ollama-model-sync
+    state: present
+    detached: true
+  tags: [ollama, deploy]
+
+- name: Wait for Ollama API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:11434/api/tags"
+    status_code: 200
+    timeout: 10
+  register: ollama_health
+  retries: 10
+  delay: 5
+  until: ollama_health.status == 200
+  failed_when: false
+  tags: [ollama, healthcheck]

@@ -1,0 +1,25 @@
+---
+# MindsDB role - AI database gateway
+
+- name: Deploy MindsDB container
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.yml
+    services:
+      - mindsdb
+    state: present
+    detached: true
+  tags: [mindsdb, deploy]
+
+- name: Wait for MindsDB API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:47334/api/status"
+    status_code: 200
+    timeout: 30
+  register: mindsdb_health
+  retries: 5
+  delay: 10
+  until: mindsdb_health.status == 200
+  failed_when: false
+  tags: [mindsdb, healthcheck]
