@@ -1,0 +1,13 @@
+---
+- name: Skip runtime validation in check mode
+  ansible.builtin.debug:
+    msg: "Skipping runtime validation in check mode"
+  when: ansible_check_mode
+
+- name: Validate each enabled env
+  ansible.builtin.include_tasks: validate-env.yml
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    loop_var: host_runtime_env
+    label: "{{ host_runtime_env.name }}"
+  when: not ansible_check_mode

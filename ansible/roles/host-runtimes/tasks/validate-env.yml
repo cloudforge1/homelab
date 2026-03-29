@@ -1,0 +1,22 @@
+---
+- name: Check env interpreter exists
+  ansible.builtin.stat:
+    path: "{{ host_runtime_conda.install_prefix }}/envs/{{ host_runtime_env.name }}/bin/python"
+  register: host_runtime_env_python
+
+- name: Assert env exists before validation
+  ansible.builtin.assert:
+    that:
+      - host_runtime_env_python.stat.exists
+    fail_msg: "Env {{ host_runtime_env.name }} does not exist; cannot validate it."
+
+- name: Run env validation commands
+  ansible.builtin.shell: >-
+    {{ host_runtime_wrapper_dir }}/hr-{{ host_runtime_env.name }} bash -lc {{ item | quote }}
+  args:
+    executable: /bin/bash
+  loop: "{{ host_runtime_env.validation }}"
+  loop_control:
+    label: "{{ host_runtime_env.name }} :: {{ item }}"
+  register: host_runtime_env_validation
+  changed_when: false

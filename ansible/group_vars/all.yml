@@ -112,3 +112,194 @@ scrutiny_devices:
 openspace_port: 7788
 openspace_memory_limit: 500M
 openspace_cpu_limit: "1.0"
+
+# ===================================================================
+# HOST RUNTIMES
+# ===================================================================
+
+host_runtime_enabled: true
+host_runtime_root: "{{ homelab_base_path }}/host-runtimes"
+host_runtime_owner: "{{ admin_user }}"
+host_runtime_group: "{{ admin_group }}"
+host_runtime_wrapper_dir: /usr/local/bin
+host_runtime_allow_destructive: false
+host_runtime_validation_enabled: true
+
+host_runtime_cuda:
+  enabled: true
+  mode: detect-only
+  allow_mutation: false
+  toolkit_version: "12.6"
+  packages: []
+  manage_symlink: false
+  validate_commands:
+    - nvidia-smi
+    - nvcc --version
+
+host_runtime_conda:
+  enabled: true
+  distribution: Miniforge3
+  installer_url: https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+  install_prefix: "{{ host_runtime_root }}/miniforge3"
+  init_shells: false
+  auto_update_base: false
+  shared_channels:
+    - conda-forge
+    - defaults
+
+host_runtime_python_env_matrix:
+  default_python: "3.10"
+  envs:
+    - name: py310pp26
+      enabled: true
+      supported: true
+      python: "3.10"
+      framework: paddle
+      framework_version: "2.6.2"
+      accelerator: cpu
+      install_method: pip
+      conda_packages: []
+      pip_packages:
+        - paddlepaddle==2.6.2
+      extra_index_urls: []
+      env_vars: {}
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import paddle; print(paddle.__version__)"
+
+    - name: py310pp30
+      enabled: true
+      supported: true
+      python: "3.10"
+      framework: paddle
+      framework_version: "3.0.0"
+      accelerator: cpu
+      install_method: pip
+      conda_packages: []
+      pip_packages:
+        - paddlepaddle==3.0.0
+      extra_index_urls: []
+      env_vars: {}
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import paddle; print(paddle.__version__)"
+
+    - name: py310pt211cpu
+      enabled: true
+      supported: true
+      python: "3.10"
+      framework: pytorch
+      framework_version: "2.1.1"
+      accelerator: cpu
+      install_method: pip
+      conda_packages: []
+      pip_packages:
+        - torch==2.1.1
+        - torchvision==0.16.1
+        - torchaudio==2.1.1
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars: {}
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+
+    - name: py310pt211cu126
+      enabled: false
+      supported: false
+      reason: Torch 2.1.1 does not publish a cu126 wheel set; keep disabled until the operator selects a compatible torch/CUDA pairing.
+      python: "3.10"
+      framework: pytorch
+      framework_version: "2.1.1"
+      accelerator: cu126
+      install_method: pip
+      conda_packages: []
+      pip_packages: []
+      extra_index_urls: []
+      env_vars: {}
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+
+    - name: py311pt260cu126
+      enabled: false
+      supported: true
+      python: "3.11"
+      framework: pytorch
+      framework_version: "2.6.0"
+      accelerator: cu126
+      install_method: pip
+      conda_packages: []
+      pip_packages:
+        - torch==2.6.0
+        - torchvision==0.21.0
+        - torchaudio==2.6.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cu126
+      env_vars: {}
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+
+    - name: py310vllmcpu
+      enabled: false
+      supported: true
+      python: "3.10"
+      framework: vllm
+      framework_version: "0.18.0"
+      accelerator: cpu
+      install_method: command
+      conda_packages: []
+      pip_packages:
+        - uv>=0.8.0
+      extra_index_urls: []
+      system_packages:
+        - libtcmalloc-minimal4
+      env_vars:
+        VLLM_TARGET_DEVICE: cpu
+        VLLM_CPU_KVCACHE_SPACE: "40"
+        VLLM_CPU_NUM_OF_RESERVED_CPU: "2"
+      dynamic_ld_preload: true
+      post_create_commands:
+        - python -m pip install --upgrade pip
+        - uv pip install https://github.com/vllm-project/vllm/releases/download/v0.18.0/vllm-0.18.0+cpu-cp38-abi3-manylinux_2_35_x86_64.whl --torch-backend cpu
+      constraints:
+        requires_avx2: true
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import vllm; print(vllm.__version__)"
+
+host_runtime_inference_services:
+  vllm:
+    enabled: false
+    env_name: py310vllmcpu
+    backend: cpu
+    host: 127.0.0.1
+    port: 8000
+    model: facebook/opt-125m
+    kv_cache_gb: 40
+    reserved_cpus: 2
+    systemd_enabled: false
+    extra_args:
+      - --dtype=bfloat16

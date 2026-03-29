@@ -1,0 +1,22 @@
+---
+# cf0 Host Runtimes Playbook
+#
+# Manages host-side runtime prerequisites and Conda environments without
+# changing the default compose-centric stack deployment path.
+#
+# Usage:
+#   ansible-playbook playbooks/host-runtimes.yml --tags preflight
+#   ansible-playbook playbooks/host-runtimes.yml --tags conda,envs,wrappers,validate
+#   ansible-playbook playbooks/host-runtimes.yml --check --diff --tags preflight
+
+- name: Manage cf0 Host Runtimes
+  hosts: cf0
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  roles:
+    - role: host-runtimes
+      tags: [host-runtimes]
