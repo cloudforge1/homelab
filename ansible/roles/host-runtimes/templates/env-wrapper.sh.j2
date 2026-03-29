@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONDA_BIN="{{ host_runtime_conda.install_prefix }}/bin/conda"
+ENV_PREFIX="{{ host_runtime_wrapper_env_prefix }}"
+
+{% for env_key, env_value in (host_runtime_wrapper_env.env_vars | default({})).items() %}
+export {{ env_key }}="{{ env_value }}"
+{% endfor %}
+{% if host_runtime_wrapper_env.dynamic_ld_preload | default(false) %}
+tcmalloc_path="$(ldconfig -p 2>/dev/null | awk '/libtcmalloc_minimal.so.4/ {print $NF; exit}')"
+iomp_path="$(find "$ENV_PREFIX" -name 'libiomp5.so' -print -quit 2>/dev/null || true)"
+for preload_candidate in "$tcmalloc_path" "$iomp_path"; do
+  if [ -n "$preload_candidate" ] && [ -e "$preload_candidate" ]; then
+    case ":${LD_PRELOAD:-}:" in
+      *:"$preload_candidate":*) ;;
+      *) export LD_PRELOAD="${preload_candidate}:${LD_PRELOAD:-}" ;;
+    esac
+  fi
+done
+{% endif %}
+
+if [ "$#" -eq 0 ]; then
+  echo "Usage: hr-{{ host_runtime_wrapper_env.name }} <command> [args...]" >&2
+  exit 64
+fi
+
+exec "$CONDA_BIN" run --prefix "$ENV_PREFIX" "$@"

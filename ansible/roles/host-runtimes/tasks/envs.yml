@@ -1,0 +1,159 @@
+---
+- name: Ensure Conda envs directory exists
+  ansible.builtin.file:
+    path: "{{ host_runtime_conda.install_prefix }}/envs"
+    state: directory
+    owner: "{{ host_runtime_owner }}"
+    group: "{{ host_runtime_group }}"
+    mode: '0755'
+  when: host_runtime_conda.enabled | bool
+
+- name: Install env-specific system packages
+  ansible.builtin.apt:
+    name: "{{ item.system_packages }}"
+    state: present
+    update_cache: true
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+    - item.system_packages is defined
+    - item.system_packages | length > 0
+
+- name: Remove envs flagged for recreation
+  ansible.builtin.file:
+    path: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}"
+    state: absent
+  loop: >-
+    {{
+      host_runtime_python_env_matrix.envs
+      | default([])
+      | selectattr('recreate', 'defined')
+      | selectattr('recreate', 'equalto', true)
+      | list
+    }}
+  loop_control:
+    label: "{{ item.name }}"
+  when: host_runtime_allow_destructive | bool
+
+- name: Inspect managed env prefixes
+  ansible.builtin.stat:
+    path: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}"
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: host_runtime_env_stats
+
+- name: Create missing Conda envs
+  ansible.builtin.command:
+    cmd: >-
+      {{ host_runtime_conda.install_prefix }}/bin/conda create --yes --prefix
+      {{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}
+      python={{ item.python | default(host_runtime_python_env_matrix.default_python) }} pip
+  become_user: "{{ host_runtime_owner }}"
+  environment:
+    HOME: "{{ admin_home }}"
+    CONDARC: "{{ host_runtime_root }}/condarc"
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+    - not host_runtime_env_stats.results[ansible_loop.index0].stat.exists
+
+- name: Ensure Python and pip are present in managed envs
+  ansible.builtin.command:
+    cmd: >-
+      {{ host_runtime_conda.install_prefix }}/bin/conda install --yes --prefix
+      {{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}
+      python={{ item.python | default(host_runtime_python_env_matrix.default_python) }} pip
+  become_user: "{{ host_runtime_owner }}"
+  environment:
+    HOME: "{{ admin_home }}"
+    CONDARC: "{{ host_runtime_root }}/condarc"
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: host_runtime_conda.enabled | bool
+
+- name: Upgrade pip in managed envs
+  ansible.builtin.pip:
+    name: pip
+    state: latest
+    executable: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}/bin/pip"
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+
+- name: Install additional Conda packages into managed envs
+  ansible.builtin.command:
+    cmd: >-
+      {{ host_runtime_conda.install_prefix }}/bin/conda install --yes --prefix
+      {{ host_runtime_conda.install_prefix }}/envs/{{ item.name }} {{ item.conda_packages | join(' ') }}
+  become_user: "{{ host_runtime_owner }}"
+  environment:
+    HOME: "{{ admin_home }}"
+    CONDARC: "{{ host_runtime_root }}/condarc"
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+    - item.conda_packages | default([]) | length > 0
+
+- name: Install pip packages into managed envs
+  ansible.builtin.pip:
+    name: "{{ item.pip_packages | default([]) }}"
+    executable: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}/bin/pip"
+    extra_args: >-
+      {{
+        ((item.extra_index_urls | default([]))
+        | map('regex_replace', '^(.*)$', '--extra-index-url \\\1')
+        | join(' '))
+      }} {{ item.pip_extra_args | default('') }}
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+    - item.pip_packages | default([]) | length > 0
+
+- name: Run custom post-create commands for managed envs when requested
+  ansible.builtin.shell: >-
+    {{ host_runtime_conda.install_prefix }}/bin/conda run --prefix
+    {{ host_runtime_conda.install_prefix }}/envs/{{ item.0.name }}
+    bash -lc {{ item.1 | quote }}
+  args:
+    executable: /bin/bash
+  become_user: "{{ host_runtime_owner }}"
+  environment:
+    HOME: "{{ admin_home }}"
+    CONDARC: "{{ host_runtime_root }}/condarc"
+  loop: "{{ query('subelements', host_runtime_enabled_envs, 'post_create_commands', {'skip_missing': True}) }}"
+  loop_control:
+    label: "{{ item.0.name }}"
+  when:
+    - host_runtime_conda.enabled | bool
+    - >-
+      (not host_runtime_env_stats.results[host_runtime_enabled_env_names.index(item.0.name)].stat.exists)
+      or (item.0.rerun_post_create | default(false) | bool)
+
+- name: Write env metadata for managed envs
+  ansible.builtin.copy:
+    dest: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}/.host-runtime-managed.yml"
+    owner: "{{ host_runtime_owner }}"
+    group: "{{ host_runtime_group }}"
+    mode: '0644'
+    content: |
+      name: {{ item.name }}
+      framework: {{ item.framework }}
+      framework_version: {{ item.framework_version }}
+      accelerator: {{ item.accelerator | default('cpu') }}
+      python: {{ item.python | default(host_runtime_python_env_matrix.default_python) }}
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: host_runtime_conda.enabled | bool

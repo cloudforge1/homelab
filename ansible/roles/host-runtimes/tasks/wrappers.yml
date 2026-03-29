@@ -1,0 +1,35 @@
+---
+- name: Ensure wrapper directory exists
+  ansible.builtin.file:
+    path: "{{ host_runtime_wrapper_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create managed Conda wrapper
+  ansible.builtin.copy:
+    dest: "{{ host_runtime_wrapper_dir }}/hr-conda"
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec {{ host_runtime_conda.install_prefix }}/bin/conda "$@"
+  when: host_runtime_conda.enabled | bool
+
+- name: Create env execution wrappers
+  ansible.builtin.template:
+    src: env-wrapper.sh.j2
+    dest: "{{ host_runtime_wrapper_dir }}/hr-{{ item.name }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ host_runtime_enabled_envs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    host_runtime_wrapper_env: "{{ item }}"
+    host_runtime_wrapper_env_prefix: "{{ host_runtime_conda.install_prefix }}/envs/{{ item.name }}"
+  when: host_runtime_conda.enabled | bool
