@@ -1,0 +1,41 @@
+---
+- name: Report detect-only CUDA policy
+  ansible.builtin.debug:
+    msg:
+      - "CUDA policy is detect-only"
+      - "Detected toolkit: {{ host_runtime_detected_cuda_toolkit | default('not found') }}"
+      - "Detected GPU: {{ host_runtime_detected_gpu_model }}"
+  when: host_runtime_cuda.mode == 'detect-only'
+
+- name: Install host CUDA packages when explicitly requested
+  ansible.builtin.apt:
+    name: "{{ host_runtime_cuda.packages }}"
+    state: present
+    update_cache: true
+  when:
+    - host_runtime_cuda.mode in ['install', 'pin']
+    - host_runtime_cuda.allow_mutation | bool
+
+- name: Manage /usr/local/cuda symlink when requested
+  ansible.builtin.file:
+    src: "/usr/local/cuda-{{ host_runtime_cuda.toolkit_version }}"
+    dest: /usr/local/cuda
+    state: link
+    force: true
+  when:
+    - host_runtime_cuda.mode in ['install', 'pin']
+    - host_runtime_cuda.allow_mutation | bool
+    - host_runtime_cuda.manage_symlink | bool
+
+- name: Validate CUDA host commands
+  ansible.builtin.shell: "{{ item }}"
+  args:
+    executable: /bin/bash
+  loop: "{{ host_runtime_cuda.validate_commands | default([]) }}"
+  register: host_runtime_cuda_validation
+  changed_when: false
+  failed_when: >-
+    host_runtime_cuda.mode in ['install', 'pin']
+    and host_runtime_cuda_validation.rc != 0
+  when: host_runtime_cuda.validate_commands | default([]) | length > 0
+  check_mode: false

@@ -1,0 +1,73 @@
+---
+- name: Ensure host runtime directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(host_runtime_owner) }}"
+    group: "{{ item.group | default(host_runtime_group) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - path: "{{ host_runtime_root }}"
+    - path: "{{ host_runtime_root }}/logs"
+    - path: "{{ host_runtime_root }}/cache"
+    - path: "{{ host_runtime_root }}/specs"
+    - path: "{{ host_runtime_conda.install_prefix | dirname }}"
+      owner: "{{ host_runtime_owner }}"
+      group: "{{ host_runtime_group }}"
+  when: host_runtime_conda.enabled | bool
+
+- name: Install host runtime prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - bzip2
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+  when: host_runtime_conda.enabled | bool
+
+- name: Write dedicated Conda configuration
+  ansible.builtin.copy:
+    dest: "{{ host_runtime_root }}/condarc"
+    owner: "{{ host_runtime_owner }}"
+    group: "{{ host_runtime_group }}"
+    mode: '0644'
+    content: |
+      channels:
+      {% for channel in host_runtime_conda.shared_channels %}
+        - {{ channel }}
+      {% endfor %}
+      channel_priority: strict
+      auto_activate_base: false
+      envs_dirs:
+        - {{ host_runtime_conda.install_prefix }}/envs
+      pkgs_dirs:
+        - {{ host_runtime_root }}/cache/pkgs
+  when: host_runtime_conda.enabled | bool
+
+- name: Download Miniforge installer
+  ansible.builtin.get_url:
+    url: "{{ host_runtime_conda.installer_url }}"
+    dest: /tmp/host-runtime-miniforge.sh
+    mode: '0755'
+  when: host_runtime_conda.enabled | bool
+
+- name: Install Miniforge under managed prefix
+  ansible.builtin.command:
+    cmd: >-
+      bash /tmp/host-runtime-miniforge.sh -b -p {{ host_runtime_conda.install_prefix }}
+    creates: "{{ host_runtime_conda.install_prefix }}/bin/conda"
+  become_user: "{{ host_runtime_owner }}"
+  environment:
+    HOME: "{{ admin_home }}"
+  when: host_runtime_conda.enabled | bool
+
+- name: Validate managed Conda binary
+  ansible.builtin.command:
+    argv:
+      - "{{ host_runtime_conda.install_prefix }}/bin/conda"
+      - --version
+  register: host_runtime_conda_version
+  changed_when: false
+  when: host_runtime_conda.enabled | bool
+  check_mode: false

@@ -1,0 +1,44 @@
+---
+host_runtime_enabled: false
+host_runtime_root: /opt/homelab/host-runtimes
+host_runtime_owner: root
+host_runtime_group: root
+host_runtime_wrapper_dir: /usr/local/bin
+host_runtime_allow_destructive: false
+host_runtime_validation_enabled: true
+
+host_runtime_cuda:
+  enabled: true
+  mode: detect-only
+  allow_mutation: false
+  toolkit_version: ""
+  packages: []
+  manage_symlink: false
+  validate_commands: []
+
+host_runtime_conda:
+  enabled: true
+  distribution: Miniforge3
+  installer_url: ""
+  install_prefix: /opt/homelab/host-runtimes/miniforge3
+  init_shells: false
+  auto_update_base: false
+  shared_channels:
+    - conda-forge
+
+host_runtime_python_env_matrix:
+  default_python: "3.10"
+  envs: []
+
+host_runtime_inference_services:
+  vllm:
+    enabled: false
+    env_name: ""
+    backend: cpu
+    host: 127.0.0.1
+    port: 8000
+    model: facebook/opt-125m
+    kv_cache_gb: 4
+    reserved_cpus: 1
+    systemd_enabled: false
+    extra_args: []

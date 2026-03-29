@@ -1,0 +1,55 @@
+---
+- name: Run host runtime preflight checks
+  ansible.builtin.include_tasks:
+    file: preflight.yml
+    apply:
+      tags:
+        - host-runtimes
+        - preflight
+  tags: [host-runtimes, preflight]
+
+- name: Manage host CUDA policy
+  ansible.builtin.include_tasks:
+    file: cuda.yml
+    apply:
+      tags:
+        - host-runtimes
+        - cuda
+  tags: [host-runtimes, cuda]
+
+- name: Install Miniforge and Conda config
+  ansible.builtin.include_tasks:
+    file: conda.yml
+    apply:
+      tags:
+        - host-runtimes
+        - conda
+  tags: [host-runtimes, conda]
+
+- name: Materialize Conda envs
+  ansible.builtin.include_tasks:
+    file: envs.yml
+    apply:
+      tags:
+        - host-runtimes
+        - envs
+  tags: [host-runtimes, envs]
+
+- name: Create operator wrappers
+  ansible.builtin.include_tasks:
+    file: wrappers.yml
+    apply:
+      tags:
+        - host-runtimes
+        - wrappers
+  tags: [host-runtimes, wrappers]
+
+- name: Validate managed runtimes
+  ansible.builtin.include_tasks:
+    file: validate.yml
+    apply:
+      tags:
+        - host-runtimes
+        - validate
+  when: host_runtime_validation_enabled | bool
+  tags: [host-runtimes, validate]
