@@ -1,0 +1,53 @@
+---
+# cf0 OpenSpace Playbook
+# Deploys: OpenSpace dashboard (skill evolution visualizer)
+# Usage: ansible-playbook playbooks/openspace.yml
+
+- name: Deploy cf0 OpenSpace
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  vars:
+    openspace_compose: "{{ compose_path }}/docker-compose.openspace.yml"
+    openspace_port: 7788
+    host_skill_dirs: "{{ admin_home }}/ai-tools/fabro/skills"
+
+  tasks:
+    - name: Ensure host skill directory exists
+      ansible.builtin.file:
+        path: "{{ host_skill_dirs }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0755'
+      tags: [config]
+
+    - name: Deploy OpenSpace
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - docker-compose.openspace.yml
+        state: present
+        detached: true
+        build: true
+      tags: [openspace, deploy]
+
+    - name: Wait for OpenSpace to be healthy
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ openspace_port }}/"
+        status_code: [200, 301, 302]
+        timeout: 30
+      register: openspace_health
+      retries: 5
+      delay: 15
+      until: openspace_health.status in [200, 301, 302]
+      failed_when: false
+      tags: [openspace, healthcheck]
+
+    - name: Display OpenSpace info
+      ansible.builtin.debug:
+        msg:
+          - "OpenSpace Dashboard: http://cf0:{{ openspace_port }}"
+          - "Host skills mounted from: {{ host_skill_dirs }}"
+      tags: [openspace, info]

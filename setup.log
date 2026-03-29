@@ -1,0 +1,185 @@
+[06:52:57] Starting cf0 setup — Ubuntu 25.10 on cf0
+[06:52:57] === Step 1: Fix APT sources (http → https) ===
+[06:52:57] APT sources already use HTTPS (or file not found)
+[06:52:57] === Step 2: apt update + upgrade ===
+Hit:1 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64  InRelease
+Hit:2 https://download.docker.com/linux/ubuntu noble InRelease
+Hit:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  InRelease
+Hit:4 https://security.ubuntu.com/ubuntu questing-security InRelease
+Hit:5 https://pl.archive.ubuntu.com/ubuntu questing InRelease
+Hit:6 https://pl.archive.ubuntu.com/ubuntu questing-updates InRelease
+Hit:7 https://pl.archive.ubuntu.com/ubuntu questing-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following upgrades have been deferred due to phasing:
+  cloud-init cloud-init-base
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:52:59] === Step 3: Build essentials + dev tools ===
+Reading package lists...
+Building dependency tree...
+Reading state information...
+build-essential is already the newest version (12.12ubuntu1).
+gcc is already the newest version (4:15.2.0-4ubuntu1).
+g++ is already the newest version (4:15.2.0-4ubuntu1).
+gfortran is already the newest version (4:15.2.0-4ubuntu1).
+cmake is already the newest version (3.31.6-2ubuntu6).
+cmake-curses-gui is already the newest version (3.31.6-2ubuntu6).
+ninja-build is already the newest version (1.12.1-1).
+git is already the newest version (1:2.51.0-1ubuntu1).
+git-lfs is already the newest version (3.6.1-1ubuntu0.1).
+curl is already the newest version (8.14.1-2ubuntu1.2).
+wget is already the newest version (1.25.0-2ubuntu3).
+pkg-config is already the newest version (1.8.1-4build1).
+autoconf is already the newest version (2.72-3.1ubuntu1).
+automake is already the newest version (1:1.17-4ubuntu1).
+libtool is already the newest version (2.5.4-4build1).
+unzip is already the newest version (6.0-28ubuntu7).
+zip is already the newest version (3.0-15ubuntu2).
+tar is already the newest version (1.35+dfsg-3.1build1).
+xz-utils is already the newest version (5.8.1-1build2).
+software-properties-common is already the newest version (0.114).
+apt-transport-https is already the newest version (3.1.6ubuntu2).
+ca-certificates is already the newest version (20250419).
+gnupg is already the newest version (2.4.8-2ubuntu2.1).
+lsb-release is already the newest version (12.1-1).
+htop is already the newest version (3.4.1-5build1).
+tmux is already the newest version (3.5a-3build1).
+screen is already the newest version (4.9.1-3ubuntu1).
+tree is already the newest version (2.2.1-1ubuntu0.2).
+jq is already the newest version (1.8.1-3ubuntu1).
+ripgrep is already the newest version (14.1.1-1).
+fd-find is already the newest version (10.3.0-1).
+net-tools is already the newest version (2.10-1.3ubuntu2).
+iproute2 is already the newest version (6.16.0-1ubuntu2.1).
+bind9-dnsutils is already the newest version (1:9.20.11-1ubuntu2.1).
+iputils-ping is already the newest version (3:20240905-3ubuntu3).
+openssh-server is already the newest version (1:10.0p1-5ubuntu5.1).
+patchelf is already the newest version (0.18.0-1.4).
+ccache is already the newest version (4.11.2-2).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:52:59] === Step 4: Python dev packages ===
+Reading package lists...
+Building dependency tree...
+Reading state information...
+python3-dev is already the newest version (3.13.7-1).
+python3-pip is already the newest version (25.1.1+dfsg-1ubuntu2).
+python3-venv is already the newest version (3.13.7-1).
+python3-setuptools is already the newest version (78.1.1-0.1).
+python3-wheel is already the newest version (0.46.1-2).
+python3-numpy is already the newest version (1:2.2.4+ds-1ubuntu1).
+python3-scipy is already the newest version (1.15.3-1).
+libffi-dev is already the newest version (3.5.2-1build1).
+libssl-dev is already the newest version (3.5.3-1ubuntu3).
+libxml2-dev is already the newest version (2.14.5+dfsg-0.2ubuntu0.1).
+libxslt1-dev is already the newest version (1.1.43-0.1).
+zlib1g-dev is already the newest version (1:1.3.dfsg+really1.3.1-1ubuntu2).
+libbz2-dev is already the newest version (1.0.8-6build1).
+libreadline-dev is already the newest version (8.3-3).
+libsqlite3-dev is already the newest version (3.46.1-8).
+libncurses-dev is already the newest version (6.5+20250216-2build1).
+liblzma-dev is already the newest version (5.8.1-1build2).
+libgdbm-dev is already the newest version (1.26-1).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:52:59] === Step 5: NVIDIA driver ===
+[06:52:59] NVIDIA driver already installed: 580.126.20
+[06:52:59] === Step 6: CUDA Toolkit ===
+(Reading database ... 163435 files and directories currently installed.)
+Preparing to unpack .../tmp/cuda-keyring_1.1-1_all.deb ...
+Unpacking cuda-keyring (1.1-1) over (1.1-1) ...
+Setting up cuda-keyring (1.1-1) ...
+Hit:1 https://download.docker.com/linux/ubuntu noble InRelease
+Hit:2 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64  InRelease
+Hit:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  InRelease
+Hit:4 https://pl.archive.ubuntu.com/ubuntu questing InRelease
+Hit:5 https://pl.archive.ubuntu.com/ubuntu questing-updates InRelease
+Hit:6 https://pl.archive.ubuntu.com/ubuntu questing-backports InRelease
+Hit:7 https://security.ubuntu.com/ubuntu questing-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+cuda-toolkit-12-6 is already the newest version (12.6.3-1).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+libcudnn9-cuda-12 is already the newest version (9.20.0.48-1).
+libcudnn9-dev-cuda-12 is already the newest version (9.20.0.48-1).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:53:04] CUDA environment set in /etc/profile.d/cuda.sh
+[06:53:04] === Step 7: Intel drivers (iGPU / media) ===
+Reading package lists...
+Building dependency tree...
+Reading state information...
+intel-media-va-driver is already the newest version (25.3.0+dfsg1-1).
+intel-gpu-tools is already the newest version (2.0-1).
+vainfo is already the newest version (2.22.0+ds1-2).
+libva-dev is already the newest version (2.22.0-3ubuntu3).
+libva-drm2 is already the newest version (2.22.0-3ubuntu3).
+libva-x11-2 is already the newest version (2.22.0-3ubuntu3).
+i965-va-driver-shaders is already the newest version (2.4.1-2).
+mesa-utils is already the newest version (9.0.0-2).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:53:04] === Step 8: ML/DL system libraries ===
+Reading package lists...
+Building dependency tree...
+Reading state information...
+libopenblas-dev is already the newest version (0.3.30+ds-3).
+liblapack-dev is already the newest version (3.12.1-6build1).
+libhdf5-dev is already the newest version (1.14.5+repack-3build1).
+libjpeg-dev is already the newest version (8c-2ubuntu11).
+libpng-dev is already the newest version (1.6.50-1ubuntu0.4).
+libtiff-dev is already the newest version (4.7.0-3ubuntu3).
+libavcodec-dev is already the newest version (7:7.1.1-1ubuntu4.2).
+libavformat-dev is already the newest version (7:7.1.1-1ubuntu4.2).
+libswscale-dev is already the newest version (7:7.1.1-1ubuntu4.2).
+libprotobuf-dev is already the newest version (3.21.12-11ubuntu3.1).
+protobuf-compiler is already the newest version (3.21.12-11ubuntu3.1).
+libgflags-dev is already the newest version (2.2.2-2build1).
+libgoogle-glog-dev is already the newest version (0.6.0-2.1build1).
+graphviz is already the newest version (2.42.4-3build2).
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+[06:53:04] === Step 9: Docker ===
+[06:53:04] Docker already installed: Docker version 29.3.0, build 5927d80
+[06:53:04] Docker daemon.json already exists
+[06:53:04] === Step 10: NOPASSWD sudo for user r ===
+[06:53:04] === Step 11: Miniforge for user r ===
+[06:53:04] Miniforge already installed
+[06:53:04] === Setup complete ===
+[06:53:04] Summary:
+[06:53:04]   OS: Ubuntu 25.10
+[06:53:04]   Kernel: 6.17.0-19-generic
+[06:53:04]   CPU: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
+[06:53:04]   RAM: 107Gi
+[06:53:04]   GPU: NVIDIA Corporation GP106 [GeForce GTX 1060 6GB] (rev a1)
+[06:53:04]   NVIDIA driver: 580.126.20
+[06:53:04]   CUDA: REBOOT REQUIRED or not yet installed
+[06:53:04]   Python: Python 3.13.7
+[06:53:05]   Docker: Docker version 29.3.0, build 5927d80
+[06:53:05]   Conda: conda 26.1.1
+[06:53:05] 
+[06:53:05] ⚠️  REBOOT REQUIRED for NVIDIA driver to load!
+[06:53:05]    Run: sudo reboot
+[06:53:05] 
+[06:53:05] After reboot, as user r:
+[06:53:05]    1. nvidia-smi                    # verify GPU
+[06:53:05]    2. conda create -n fd python=3.10 -y  # create FastDeploy env
+[06:53:05]    3. conda activate fd
+[06:53:05]    4. pip install paddlepaddle-gpu   # install PaddlePaddle with GPU
+[06:53:05]    5. pip install -r FastDeploy/requirements.txt  # FastDeploy deps
+[06:53:05] 
+[06:53:05] Full log: /var/log/cf0-setup.log

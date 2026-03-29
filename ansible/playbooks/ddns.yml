@@ -1,0 +1,29 @@
+---
+# cf0 DDNS Update Playbook
+# Equivalent to: bash /opt/homelab/cf0-ddns.sh
+#
+# Updates Cloudflare DDNS for cfz.myvnc.com
+# Usage: ansible-playbook playbooks/ddns.yml
+
+- name: Update cf0 DDNS records
+  hosts: cf0
+  become: false
+  gather_facts: false
+
+  vars:
+    ddns_script: "{{ homelab_base_path }}/cf0-ddns.sh"
+
+  tasks:
+    - name: Run DDNS update script
+      ansible.builtin.command:
+        cmd: "{{ ddns_script }}"
+      register: ddns_result
+      changed_when: >-
+        'updated' in ddns_result.stdout.lower() or 
+        'changed' in ddns_result.stdout.lower()
+      tags: [ddns, update]
+
+    - name: Display DDNS update result
+      ansible.builtin.debug:
+        msg: "{{ ddns_result.stdout_lines }}"
+      tags: [ddns]

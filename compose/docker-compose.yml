@@ -1,0 +1,142 @@
+# cf0 LLM + AI Tools Stack — Master Docker Compose
+# All services: docker compose up -d
+# Status:       docker compose ps
+# Logs:         docker compose logs -f <service>
+#
+# Hardware: i9-9900K (16 threads), 107GB RAM, GTX 1060 6GB
+# -------------------------------------------------------------------
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ── 1. Ollama — LLM inference runtime (GPU) ───────────────────────
+  ollama:
+    <<: *restart
+    image: ollama/ollama:latest
+    container_name: ollama
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - /home/r/.ollama:/root/.ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: 2
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MAX_LOADED_MODELS: 3
+      OLLAMA_FLASH_ATTENTION: 1
+      OLLAMA_NUM_THREADS: 14
+
+  # ── 1a. Ollama optional model sync — one-shot, env-controlled ─────
+  ollama-model-sync:
+    image: ollama/ollama:latest
+    network_mode: host
+    depends_on:
+      ollama:
+        condition: service_started
+    env_file:
+      - ./ollama-models.env
+    environment:
+      OLLAMA_HOST: http://127.0.0.1:11434
+    volumes:
+      - ./ollama-model-sync.sh:/opt/cf0/ollama-model-sync.sh:ro
+    entrypoint: ["/bin/sh", "/opt/cf0/ollama-model-sync.sh"]
+
+  # ── 2. Open WebUI — Chat interface ────────────────────────────────
+  open-webui:
+    <<: *restart
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    network_mode: host
+    depends_on:
+      ollama:
+        condition: service_started
+    volumes:
+      - open-webui-data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      WEBUI_AUTH: "false"
+
+  # ── 3. SearXNG — Private search engine ────────────────────────────
+  searxng:
+    <<: *restart
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8081:8080"
+    volumes:
+      - /home/r/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8081/
+
+  # ── 4. MindsDB — AI database gateway ──────────────────────────────
+  mindsdb:
+    <<: *restart
+    image: mindsdb/mindsdb:latest
+    container_name: mindsdb
+    ports:
+      - "47334:47334"
+      - "47335:47335"
+    volumes:
+      - /home/r/mindsdb:/root
+
+  # ── 5. ZeroClaw — Personal AI assistant ────────────────────────────
+  zeroclaw:
+    <<: *restart
+    image: ghcr.io/zeroclaw-labs/zeroclaw:latest
+    container_name: zeroclaw
+    ports:
+      - "42617:42617"
+    volumes:
+      - /home/r/.zeroclaw:/root/.zeroclaw
+    environment:
+      ZEROCLAW_HOST: 0.0.0.0
+    command: gateway start -p 42617 --host 0.0.0.0
+
+  # ── 6. Cognee — AI memory/knowledge engine ────────────────────────
+  cognee:
+    <<: *restart
+    image: ${COGNEE_IMAGE:-cognee-cognee:latest}
+    container_name: cognee
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DEBUG: "false"
+      HOST: 0.0.0.0
+      ENVIRONMENT: local
+      LOG_LEVEL: INFO
+      CORS_ALLOWED_ORIGINS: "*"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8GB
+    networks:
+      - cognee-network
+
+  # ── 7. RedisInsight — Redis GUI ────────────────────────────────────
+  redisinsight:
+    <<: *restart
+    image: redislabs/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    networks:
+      - cognee-network
+
+volumes:
+  open-webui-data:
+    external: true
+
+networks:
+  cognee-network:
+    name: cognee-network

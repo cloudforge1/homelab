@@ -1,0 +1,57 @@
+# OpenSpace — Self-evolving AI agent engine
+# Standalone compose file — run alongside the main cf0 stack.
+#
+# Deploy:  pnpm openspace:deploy
+# Logs:    pnpm openspace:logs
+# Update:  pnpm openspace:update
+# ───────────────────────────────────────────────────────────────────
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+
+  # ── openspace — Dashboard API (skill evolution visualiser) ──────────
+  openspace:
+    <<: *restart
+    build:
+      context: ./openspace
+      dockerfile: Dockerfile
+    image: cf0-openspace:latest
+    container_name: openspace
+    ports:
+      - "0.0.0.0:7788:7788"
+    environment:
+      # LLM backend — set in expand.env or via env on ubu1
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY:    ${OPENAI_API_KEY:-}
+      # Cloud skill community (optional — get key at https://open-space.cloud)
+      OPENSPACE_API_KEY: ${OPENSPACE_API_KEY:-}
+      OPENSPACE_WORKSPACE: /app
+      OPENSPACE_DASHBOARD_HOST: "0.0.0.0"
+      OPENSPACE_DASHBOARD_PORT: "7788"
+      # Read-only capture mode: host skills are mounted :ro below.
+      # New skills captured by OpenSpace are written to the openspace-skills volume,
+      # not back to the host — protects Baidu-standard SKILL.md files from mutation.
+      OPENSPACE_HOST_SKILL_DIRS: /app/openspace/host-skills
+    volumes:
+      - openspace-data:/app/.openspace
+      - openspace-skills:/app/openspace/skills
+      # Host skill library — read-only so OpenSpace cannot mutate existing SKILLs
+      - /home/r/ai-tools/fabro/skills:/app/openspace/host-skills:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 500M       # Dashboard-only mode (no local LLM inference); API keys drive cloud models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7788/health || curl -sf http://localhost:7788/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  openspace-data:
+  openspace-skills:
+  # Note: /home/r/ai-tools/fabro/skills is a bind-mount (host path), not a named volume.

@@ -1,0 +1,98 @@
+---
+# cf0 LLM Stack Playbook
+# Equivalent to: sudo -E bash /opt/homelab/cf0-llm-stack.sh
+#
+# Deploys: Ollama, Open WebUI, SearXNG, OpenRAG, MindsDB, Cognee, ZeroClaw
+# Usage: ansible-playbook playbooks/llm-stack.yml
+
+- name: Deploy cf0 LLM + AI Tools Stack
+  hosts: cf0
+  become: true
+  gather_facts: true
+
+  vars:
+    local_user: "{{ admin_user }}"
+    local_home: "{{ admin_home }}"
+    compose_dir: "{{ compose_path }}"
+    nic_name: "{{ nic_name | default('eno1') }}"
+    bandwidth_limit: "{{ bandwidth_limit | default('50mbit') }}"
+
+  pre_tasks:
+    - name: Check prerequisites
+      assert:
+        that:
+          - ansible_memtotal_mb >= 100000  # 100GB minimum
+          - ansible_processor_vcpus >= 8
+        fail_msg: "Hardware requirements not met"
+
+    - name: Apply bandwidth limit (50% of 100Mbps)
+      community.general.tc:
+        device: "{{ nic_name }}"
+        classid: "1:10"
+        rate: "{{ bandwidth_limit }}"
+        ceil: "{{ bandwidth_limit }}"
+        burst: 32k
+        quantum: 1514
+        state: present
+      tags: [network, bandwidth]
+
+  tasks:
+    - name: Include Ollama role
+      ansible.builtin.include_role:
+        name: ollama
+      tags: [ollama]
+
+    - name: Include Open WebUI role
+      ansible.builtin.include_role:
+        name: open-webui
+      tags: [open-webui]
+
+    - name: Include SearXNG role
+      ansible.builtin.include_role:
+        name: searxng
+      tags: [searxng]
+
+    - name: Include OpenRAG role
+      ansible.builtin.include_role:
+        name: openrag
+      tags: [openrag]
+
+    - name: Include MindsDB role
+      ansible.builtin.include_role:
+        name: mindsdb
+      tags: [mindsdb]
+
+    - name: Include Cognee role
+      ansible.builtin.include_role:
+        name: cognee
+      tags: [cognee]
+
+    - name: Include ZeroClaw role
+      ansible.builtin.include_role:
+        name: zeroclaw
+      tags: [zeroclaw]
+
+  post_tasks:
+    - name: Run health checks
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ item.port }}{{ item.path | default('/') }}"
+        status_code: "{{ item.status_code | default([200, 301, 302, 401]) }}"
+        timeout: 10
+      loop:
+        - { name: ollama, port: 11434, path: /api/tags }
+        - { name: open-webui, port: 8080 }
+        - { name: searxng, port: 8081 }
+        - { name: openrag, port: 3000 }
+        - { name: mindsdb, port: 47334, path: /api/status }
+        - { name: zeroclaw, port: 42617 }
+      register: health_results
+      failed_when: false
+      tags: [healthcheck]
+
+    - name: Display health check summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.name }}: 
+          {{ '✓ Healthy' if item.status in [200, 301, 302, 401] else '✗ Unhealthy (status: ' ~ item.status ~ ')' }}
+      loop: "{{ health_results.results | default([]) }}"
+      tags: [healthcheck]

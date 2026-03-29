@@ -1,0 +1,42 @@
+---
+# cf0 Monitoring Stack Playbook
+# Deploys: Scrutiny (SMART disk monitoring)
+# Usage: ansible-playbook playbooks/monitoring.yml
+
+- name: Deploy cf0 Monitoring Stack
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  vars:
+    scrutiny_compose: "{{ compose_path }}/docker-compose.scrutiny.yml"
+    scrutiny_port: 7786
+
+  tasks:
+    - name: Deploy Scrutiny
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - docker-compose.scrutiny.yml
+        state: present
+        detached: true
+      tags: [scrutiny, deploy]
+
+    - name: Wait for Scrutiny to be healthy
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ scrutiny_port }}/api/health"
+        status_code: 200
+        timeout: 30
+      register: scrutiny_health
+      retries: 5
+      delay: 15
+      until: scrutiny_health.status == 200
+      failed_when: false
+      tags: [scrutiny, healthcheck]
+
+    - name: Display Scrutiny info
+      ansible.builtin.debug:
+        msg:
+          - "Scrutiny Web UI: http://cf0:{{ scrutiny_port }}"
+          - "Monitoring devices: {{ scrutiny_devices | join(', ') }}"
+      tags: [scrutiny, info]

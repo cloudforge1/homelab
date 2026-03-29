@@ -1,0 +1,235 @@
+# cf0 Expand Stack — Additional AI/ML tools and services
+# Managed by: cf0-stack.sh (dc_expand)
+# -------------------------------------------------------------------
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Supporting Services (shared infrastructure) ────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── redis-tools — Redis for firecrawl and other tools ──────────────
+  redis-tools:
+    <<: *restart
+    image: redis:7-alpine
+    container_name: redis-tools
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-tools-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── qdrant — Vector database for mem0 and embeddings ───────────────
+  qdrant:
+    <<: *restart
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "0.0.0.0:6333:6333"
+      - "0.0.0.0:6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c \"echo > /dev/tcp/localhost/6333\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── postgres-tools — PostgreSQL for mcaptcha and other tools ───────
+  postgres-tools:
+    <<: *restart
+    image: postgres:16-alpine
+    container_name: postgres-tools
+    ports:
+      - "0.0.0.0:4433:5432"
+    environment:
+      POSTGRES_USER: ${TOOLS_PG_USER:-tools}
+      POSTGRES_PASSWORD: ${TOOLS_PG_PASSWORD:-tools_dev_2025}
+      POSTGRES_DB: ${TOOLS_PG_DB:-tools_db}
+    volumes:
+      - postgres-tools-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tools -d tools_db"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Main Services ──────────────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── n8n — Workflow automation ──────────────────────────────────────
+  n8n:
+    <<: *restart
+    image: n8nio/n8n:latest
+    container_name: n8n
+    ports:
+      - "0.0.0.0:5679:5678"
+    environment:
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_HOST: 0.0.0.0
+      WEBHOOK_URL: http://0.0.0.0:5679
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+  # ── nuclio-dashboard — Serverless function platform ────────────────
+  nuclio-dashboard:
+    <<: *restart
+    image: quay.io/nuclio/dashboard:stable-amd64
+    container_name: nuclio-dashboard
+    ports:
+      - "0.0.0.0:8070:8070"
+    environment:
+      NUCLIO_DASHBOARD_EXTERNAL_IP_ADDRESSES: 0.0.0.0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ── mcaptcha — CAPTCHA service ─────────────────────────────────────
+  # ── mcaptcha — PoW-based CAPTCHA ────────────────────────────────────
+  # NOTE: mcaptcha requires /etc/mcaptcha/config.toml with Redis and
+  # PostgreSQL config. Create config file first, then uncomment.
+  # See: https://github.com/mCaptcha/mCaptcha/blob/master/config/default.toml
+  # mcaptcha:
+  #   <<: *restart
+  #   image: mcaptcha/mcaptcha:latest
+  #   container_name: mcaptcha
+  #   ports:
+  #     - "0.0.0.0:7000:7000"
+  #   volumes:
+  #     - ./mcaptcha-config.toml:/etc/mcaptcha/config.toml:ro
+  #   depends_on:
+  #     postgres-tools:
+  #       condition: service_healthy
+  #     redis-tools:
+  #       condition: service_healthy
+
+  # ── tensorlake — Indexify data extraction/indexing server ──────────
+  tensorlake:
+    <<: *restart
+    image: tensorlake/indexify-server:latest
+    container_name: tensorlake
+    ports:
+      - "0.0.0.0:8900:8900"
+    volumes:
+      - tensorlake-data:/data
+
+  # ── mem0-server — AI memory layer (pip-based) ─────────────────────
+  # ── mem0-server — AI memory layer ──────────────────────────────────
+  # NOTE: mem0ai PyPI package does not include a standalone server CLI.
+  # The mem0 platform server is a separate commercial product.
+  # To use mem0, integrate mem0ai as a Python library in your app, or
+  # run the official mem0 platform: https://github.com/mem0ai/mem0
+  # mem0-server:
+  #   <<: *restart
+  #   image: python:3.11-slim
+  #   container_name: mem0-server
+  #   ports:
+  #     - "0.0.0.0:8010:8010"
+  #   environment:
+  #     QDRANT_URL: http://qdrant:6333
+  #   depends_on:
+  #     qdrant:
+  #       condition: service_healthy
+  #   volumes:
+  #     - mem0-data:/data
+
+  # ── nautilus-trader — Algorithmic trading platform (JupyterLab) ────
+  nautilus-trader:
+    <<: *restart
+    image: ghcr.io/nautechsystems/nautilus_trader:latest
+    container_name: nautilus-trader
+    ports:
+      - "0.0.0.0:8889:8888"
+    volumes:
+      - nautilus-data:/home/jovyan
+    command: >
+      bash -c "pip install --no-cache-dir jupyterlab &&
+               jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --ServerApp.token=" 
+
+  # ── openbb — OpenBB financial data API (pip-based) ─────────────────
+  openbb:
+    <<: *restart
+    image: python:3.11-slim
+    container_name: openbb
+    ports:
+      - "0.0.0.0:6900:6900"
+    volumes:
+      - openbb-data:/root/.openbb
+      - ./scripts/openbb-start.sh:/start.sh:ro
+    command: ["sh", "/start.sh"]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Commented out — image not found or needs manual build ──────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── kokoro-fastapi — TTS engine (CPU) ──────────────────────────────
+  # TODO: ghcr.io/remsky/kokoro-fastapi-cpu:v0.4.2 not found on GHCR.
+  #       Clone https://github.com/remsky/Kokoro-FastAPI and build locally:
+  #       docker build -t kokoro-fastapi-cpu:local -f docker/cpu/Dockerfile .
+  # kokoro-fastapi:
+  #   <<: *restart
+  #   image: kokoro-fastapi-cpu:local
+  #   container_name: kokoro-fastapi
+  #   ports:
+  #     - "0.0.0.0:8880:8880"
+  #   volumes:
+  #     - kokoro-data:/app/voices
+  #   environment:
+  #     PORT: "8880"
+
+  # ── firecrawl-api — Web scraping API ───────────────────────────────
+  # TODO: No pre-built Docker image found for mendableai/firecrawl on
+  #       Docker Hub or GHCR. Clone https://github.com/mendableai/firecrawl
+  #       and build using their docker-compose or Dockerfile.
+  # firecrawl-api:
+  #   <<: *restart
+  #   image: mendableai/firecrawl:latest
+  #   container_name: firecrawl-api
+  #   ports:
+  #     - "0.0.0.0:3002:3002"
+  #   environment:
+  #     REDIS_URL: redis://redis-tools:6379
+  #     PORT: "3002"
+  #     HOST: 0.0.0.0
+  #   depends_on:
+  #     redis-tools:
+  #       condition: service_healthy
+
+  # ── gitingest — Git repo ingestion for LLMs ────────────────────────
+  # TODO: No pre-built Docker image found for gitingest/gitingest or
+  #       cyclotruc/gitingest. Clone https://github.com/cyclotruc/gitingest
+  #       and build: docker build -t gitingest:local .
+  # gitingest:
+  #   <<: *restart
+  #   image: gitingest:local
+  #   container_name: gitingest
+  #   ports:
+  #     - "0.0.0.0:8015:8015"
+
+  # ── docetl — Document ETL pipeline ─────────────────────────────────
+  # TODO: No pre-built Docker image found for ucbepic/docetl.
+  #       Clone https://github.com/ucbepic/docetl and build manually.
+  # docetl:
+  #   <<: *restart
+  #   image: ucbepic/docetl:latest
+  #   container_name: docetl
+  #   ports:
+  #     - "0.0.0.0:8017:8017"
+
+volumes:
+  redis-tools-data:
+  qdrant-data:
+  postgres-tools-data:
+  n8n-data:
+  tensorlake-data:
+  mem0-data:
+  nautilus-data:
+  openbb-data:
+  # kokoro-data:   # uncomment when kokoro-fastapi is enabled

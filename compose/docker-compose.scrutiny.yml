@@ -1,0 +1,56 @@
+# Scrutiny — SMART/NVMe disk health monitoring (omnibus: web UI + collector + InfluxDB)
+# Standalone compose file — run alongside the main cf0 stack.
+#
+# Deploy:  docker compose -f docker-compose.scrutiny.yml up -d
+# Logs:    docker compose -f docker-compose.scrutiny.yml logs -f
+# Web UI:  http://cf0:7786
+# ───────────────────────────────────────────────────────────────────────
+#
+# Hardware: /dev/sda … /dev/sdg (7 SATA disks confirmed on ubu1)
+# RAM:      InfluxDB + web server ≈ 250–350 MB (well under 500 MB limit)
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+
+  # ── scrutiny — SMART monitoring (all-in-one omnibus image) ──────────
+  scrutiny:
+    <<: *restart
+    image: ghcr.io/analogj/scrutiny:master-omnibus
+    container_name: scrutiny
+    ports:
+      - "0.0.0.0:7786:8080"   # Web UI on host port 7786 (8080 taken by Open WebUI)
+    volumes:
+      - /run/udev:/run/udev:ro          # udev events for hot-plug detection
+      - scrutiny-config:/opt/scrutiny/config
+      - scrutiny-influx:/opt/scrutiny/influxdb
+    devices:
+      - /dev/sda:/dev/sda
+      - /dev/sdb:/dev/sdb
+      - /dev/sdc:/dev/sdc
+      - /dev/sdd:/dev/sdd
+      - /dev/sde:/dev/sde
+      - /dev/sdf:/dev/sdf
+      - /dev/sdg:/dev/sdg
+    cap_add:
+      - SYS_RAWIO   # required for SMART ATA pass-through
+      - SYS_ADMIN   # required for NVMe identify commands
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 400M   # InfluxDB + web server; stays well under 500 MB target
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/health || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  scrutiny-config:
+    driver: local
+  scrutiny-influx:
+    driver: local
+

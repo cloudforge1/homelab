@@ -1,0 +1,31 @@
+# cf0 Serena MCP — Semantic Code Navigation Server
+# Management: cf0-serena.sh up|down|status|logs|health
+# -------------------------------------------------------------------
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  serena:
+    <<: *restart
+    image: cf0-serena:${SERENA_VERSION:-v0.1.4}
+    build:
+      context: /opt/cf0-scripts/vendor/serena/
+      dockerfile: Dockerfile
+      target: production
+    container_name: cf0-serena
+    ports:
+      - "127.0.0.1:${SERENA_PORT:-9121}:9121"
+      - "127.0.0.1:${SERENA_DASHBOARD_PORT:-24282}:24282"
+    environment:
+      SERENA_DOCKER: 1
+    command:
+      - "uv run --directory . serena-mcp-server --transport sse --port 9121 --host 0.0.0.0 --context ide-assistant --enable-web-dashboard False"
+    volumes:
+      - /home/r/serena-data:/workspaces/serena/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9121"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

@@ -1,0 +1,75 @@
+---
+# cf0 OpenRAG Stack Playbook
+# Equivalent to: docker compose -f docker-compose.openrag.yml up -d
+#
+# Deploys: OpenSearch, OpenSearch Dashboards, Langflow, OpenRAG backend/frontend
+# Usage: ansible-playbook playbooks/openrag-stack.yml
+
+- name: Deploy cf0 OpenRAG Stack
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  vars:
+    compose_file: "{{ compose_path }}/docker-compose.openrag.yml"
+    env_file: "{{ compose_path }}/.env"
+
+  tasks:
+    - name: Ensure .env file exists with OpenRAG credentials
+      ansible.builtin.lineinfile:
+        path: "{{ env_file }}"
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        create: true
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
+      loop:
+        - { key: OPENSEARCH_PASSWORD, value: "{{ opensearch_password }}" }
+        - { key: OPENSEARCH_HOST, value: "{{ opensearch_host }}" }
+        - { key: OPENSEARCH_PORT, value: "{{ opensearch_port }}" }
+        - { key: OPENSEARCH_USERNAME, value: "{{ opensearch_username }}" }
+        - { key: OPENSEARCH_INDEX_NAME, value: "{{ opensearch_index_name }}" }
+        - { key: LANGFLOW_AUTO_LOGIN, value: "{{ langflow_auto_login }}" }
+        - { key: LANGFLOW_SUPERUSER, value: "{{ langflow_superuser }}" }
+        - { key: LANGFLOW_SUPERUSER_PASSWORD, value: "{{ langflow_superuser_password }}" }
+        - { key: LANGFLOW_WORKERS, value: "{{ langflow_workers }}" }
+        - { key: FRONTEND_PORT, value: "{{ frontend_port }}" }
+      tags: [config]
+
+    - name: Deploy OpenRAG stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - docker-compose.openrag.yml
+        env_files:
+          - "{{ env_file }}"
+        state: present
+        detached: true
+        remove_orphans: true
+      tags: [deploy]
+
+    - name: Wait for OpenSearch to be ready
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/"
+        status_code: [200, 401]
+        timeout: 60
+        validate_certs: false
+      register: opensearch_health
+      retries: 10
+      delay: 10
+      until: opensearch_health.status in [200, 401]
+      failed_when: false
+      tags: [healthcheck]
+
+    - name: Wait for OpenRAG frontend to be ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ frontend_port }}/"
+        status_code: [200, 301, 302]
+        timeout: 10
+      register: openrag_health
+      retries: 5
+      delay: 10
+      until: openrag_health.status in [200, 301, 302]
+      failed_when: false
+      tags: [healthcheck]

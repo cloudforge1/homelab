@@ -1,0 +1,165 @@
+---
+# cf0 LLM Tools Playbook
+# Equivalent to: bash /opt/homelab/cf0-llm-tools.sh
+#
+# Installs: Node.js, Rust, ZeroClaw, MindsDB, Cognee, Flowise, Unsloth,
+#           Claude Code, MetaClaw, uv, Gstack, Onyx
+# Usage: ansible-playbook playbooks/llm-tools.yml
+
+- name: Install cf0 LLM Tools
+  hosts: cf0
+  become: true
+  gather_facts: true
+
+  vars:
+    local_user: "{{ admin_user }}"
+    local_home: "{{ admin_home }}"
+    log_file: "{{ local_home }}/.local/state/cf0-llm-tools.log"
+
+    # Feature toggles (match cf0-llm-tools.sh)
+    enable_zeroclaw: true
+    enable_mindsdb: true
+    enable_cognee: true
+    enable_flowise: true
+    enable_unsloth: true
+    enable_claude_code: true
+    enable_metaclaw: true
+    enable_uv: true
+    enable_gstack: true
+    enable_onyx: true
+    enable_rust: "{{ enable_zeroclaw }}"
+
+  tasks:
+    - name: Ensure log directory exists
+      ansible.builtin.file:
+        path: "{{ log_file | dirname }}"
+        state: directory
+        owner: "{{ local_user }}"
+        group: "{{ local_user }}"
+        mode: '0755'
+      tags: [setup]
+
+    # ── STEP 1: Node.js 22 LTS ─────────────────────────────────────
+    - name: Check Node.js version
+      ansible.builtin.command: node --version
+      register: node_version
+      failed_when: false
+      changed_when: false
+      tags: [nodejs]
+
+    - name: Install Node.js 22 LTS (if needed)
+      block:
+        - name: Add NodeSource repository
+          ansible.builtin.get_url:
+            url: https://deb.nodesource.com/setup_22.x
+            dest: /tmp/setup_22.x
+            mode: '0755'
+
+        - name: Run NodeSource setup
+          ansible.builtin.command:
+            cmd: bash /tmp/setup_22.x
+            creates: /etc/apt/sources.list.d/nodesource.list
+
+        - name: Install Node.js
+          ansible.builtin.apt:
+            name: nodejs
+            state: present
+            update_cache: yes
+      when: >-
+        node_version.rc != 0 or
+        (node_version.stdout is defined and 
+         not node_version.stdout | regex_search('^v(2[0-9]|[3-9][0-9])'))
+      tags: [nodejs]
+
+    - name: Update npm to latest
+      community.general.npm:
+        name: npm
+        global: true
+        state: latest
+      tags: [nodejs]
+
+    # ── STEP 2: Rust Toolchain ──────────────────────────────────────
+    - name: Install Rust toolchain
+      block:
+        - name: Check if rustc exists
+          ansible.builtin.command: rustc --version
+          register: rust_version
+          failed_when: false
+          changed_when: false
+
+        - name: Install Rust via rustup
+          ansible.builtin.shell: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          args:
+            creates: "{{ local_home }}/.cargo/bin/rustc"
+          become_user: "{{ local_user }}"
+          when: rust_version.rc != 0
+      when: enable_rust | bool
+      tags: [rust]
+
+    # ── STEP 3: ZeroClaw ────────────────────────────────────────────
+    - name: Install ZeroClaw
+      block:
+        - name: Check if ZeroClaw is installed
+          ansible.builtin.command: zeroclaw --version
+          register: zeroclaw_version
+          failed_when: false
+          changed_when: false
+
+        - name: Download and install ZeroClaw binary
+          ansible.builtin.get_url:
+            url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.5.5/zeroclaw-x86_64-unknown-linux-gnu.tar.gz"
+            dest: /tmp/zeroclaw.tar.gz
+            mode: '0644'
+          when: zeroclaw_version.rc != 0
+
+        - name: Extract ZeroClaw
+          ansible.builtin.unarchive:
+            src: /tmp/zeroclaw.tar.gz
+            dest: /tmp
+            remote_src: yes
+          when: zeroclaw_version.rc != 0
+
+        - name: Install ZeroClaw to /usr/local/bin
+          ansible.builtin.copy:
+            src: /tmp/zeroclaw
+            dest: /usr/local/bin/zeroclaw
+            mode: '0755'
+            remote_src: yes
+          when: zeroclaw_version.rc != 0
+
+        - name: Create ZeroClaw config directory
+          ansible.builtin.file:
+            path: "{{ local_home }}/.zeroclaw"
+            state: directory
+            owner: "{{ local_user }}"
+            group: "{{ local_user }}"
+            mode: '0755'
+
+        - name: Create ZeroClaw config (Ollama)
+          ansible.builtin.copy:
+            dest: "{{ local_home }}/.zeroclaw/config.toml"
+            content: |
+              # ZeroClaw config — point at local Ollama
+              default_provider = "ollama"
+
+              [providers.ollama]
+              kind = "ollama"
+              base_url = "http://127.0.0.1:11434"
+              model = "qwen3.5:4b"
+            owner: "{{ local_user }}"
+            group: "{{ local_user }}"
+            mode: '0644'
+          when: zeroclaw_version.rc != 0
+      when: enable_zeroclaw | bool
+      tags: [zeroclaw]
+
+    # ── STEP 4-11: Additional tools (stubs for now) ─────────────────
+    - name: Note on remaining tools
+      ansible.builtin.debug:
+        msg: >-
+          Remaining tools (MindsDB, Cognee, Flowise, Unsloth, Claude Code, 
+          MetaClaw, uv, Gstack, Onyx) should be deployed via their respective 
+          Docker Compose files or package managers. See cf0-llm-tools.sh for 
+          full implementation details.
+      tags: [info]

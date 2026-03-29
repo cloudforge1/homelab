@@ -1,0 +1,114 @@
+---
+# Global variables for cf0 homelab
+# Hardware: i9-9900K, 107GB RAM, GTX 1060 6GB
+
+# System settings
+timezone: UTC
+locale: en_US.UTF-8
+
+# User settings
+admin_user: r
+admin_group: r
+admin_home: /home/r
+
+# Hardware
+gpu_enabled: true
+gpu_count: all
+ollama_num_parallel: 2
+ollama_keep_alive: 30m
+ollama_max_loaded_models: 3
+ollama_flash_attention: 1
+ollama_num_threads: 14
+
+# Docker settings
+docker_packages:
+  - docker.io
+  - docker-compose
+  - docker-compose-v2
+
+docker_daemon_options:
+  storage-driver: overlay2
+  log-driver: json-file
+  log-opts:
+    max-size: "10m"
+    max-file: "3"
+
+# Network
+bandwidth_limit: "50mbit"
+nic_name: eno1
+
+# ===================================================================
+# COMPOSE STACK VARIABLES
+# ===================================================================
+
+# ── OpenRAG ─────────────────────────────────────────────────────────
+openrag_version: latest
+opensearch_password: "CCG04fuFpX8fFcl26JaWA1!"
+opensearch_host: opensearch
+opensearch_port: 9200
+opensearch_username: admin
+opensearch_index_name: documents
+langflow_auto_login: true
+langflow_superuser: admin
+langflow_superuser_password: "CCG04fuFpX8fFcl26JaW"
+langflow_workers: 1
+frontend_port: 3000
+
+# ── Serena MCP ──────────────────────────────────────────────────────
+serena_port: 9121
+serena_dashboard_port: 24282
+serena_version: main
+serena_context: ide
+serena_projects_host_root: /home/r
+serena_projects_container_root: /workspaces/home-r
+serena_config_host_root: /home/r/serena-config
+
+# ── PostgreSQL (tools) ──────────────────────────────────────────────
+tools_pg_user: tools
+tools_pg_password: tools_dev_2025
+tools_pg_db: tools_db
+
+# ── Ollama Model Sync ───────────────────────────────────────────────
+model_sync_timeout_secs: 1800
+enable_model_qwen35_9b: true
+enable_model_qwen35_122b: false
+enable_model_nemotron_3_super: false
+enable_model_qwen3_coder_next: false
+enable_model_devstral_2: false
+enable_model_nemotron_cascade_2: false
+enable_model_nemotron_3_nano_30b: false
+enable_model_qwen3_vl_30b: false
+enable_model_qwen3_vl_8b: false
+enable_model_lfm2_24b: false
+enable_model_glm_4_7_flash: false
+enable_model_qwen3_next: false
+enable_model_gpt_oss_20b: false
+enable_model_olmo_3_1_32b: false
+
+# ── Feature Toggles (cf0-llm-tools.sh) ──────────────────────────────
+enable_zeroclaw: true
+enable_mindsdb: true
+enable_cognee: true
+enable_flowise: true
+enable_unsloth: true
+enable_claude_code: true
+enable_metaclaw: true
+enable_uv: true
+enable_gstack: true
+enable_onyx: true
+
+# ── Scrutiny ────────────────────────────────────────────────────────
+scrutiny_port: 7786
+scrutiny_devices:
+  - /dev/sda
+  - /dev/sdb
+  - /dev/sdc
+  - /dev/sdd
+  - /dev/sde
+  - /dev/sdf
+  - /dev/sdg
+
+# ── OpenSpace ───────────────────────────────────────────────────────
+openspace_port: 7788
+openspace_memory_limit: 500M
+openspace_cpu_limit: "1.0"

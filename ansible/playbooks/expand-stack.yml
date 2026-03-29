@@ -1,0 +1,67 @@
+---
+# cf0 Expand Stack Playbook
+# Equivalent to: docker compose -f docker-compose.expand.yml up -d
+#
+# Deploys: n8n, nuclio, qdrant, redis, postgres, tensorlake, nautilus, openbb
+# Usage: ansible-playbook playbooks/expand-stack.yml
+
+- name: Deploy cf0 Expand Stack
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  vars:
+    compose_file: "{{ compose_path }}/docker-compose.expand.yml"
+    env_file: "{{ compose_path }}/expand.env"
+
+  tasks:
+    - name: Ensure compose directory exists
+      ansible.builtin.file:
+        path: "{{ compose_path }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0755'
+
+    - name: Ensure expand.env exists
+      ansible.builtin.template:
+        src: expand.env.j2
+        dest: "{{ env_file }}"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
+      tags: [config]
+
+    - name: Deploy Expand stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - docker-compose.expand.yml
+        env_files:
+          - "{{ env_file }}"
+        state: present
+        detached: true
+        remove_orphans: true
+      tags: [deploy]
+
+    - name: Wait for services to be ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ item.port }}/"
+        status_code: "{{ item.status_code | default([200, 301, 302, 401, 403]) }}"
+        timeout: 5
+      loop:
+        - { name: qdrant, port: 6333, path: /readyz }
+        - { name: n8n, port: 5679 }
+        - { name: nuclio-dashboard, port: 8070 }
+        - { name: tensorlake, port: 8900 }
+        - { name: nautilus-trader, port: 8889 }
+        - { name: openbb, port: 6900 }
+      register: expand_health
+      failed_when: false
+      tags: [healthcheck]
+
+    - name: Display Expand stack health
+      ansible.builtin.debug:
+        msg: "{{ item.item.name }}: {{ '✓' if item.status in [200, 301, 302, 401, 403] else '✗' }}"
+      loop: "{{ expand_health.results | default([]) }}"
+      tags: [healthcheck]

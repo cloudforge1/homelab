@@ -1,0 +1,86 @@
+---
+# cf0 Serena MCP Playbook
+# Equivalent to: bash /opt/homelab/cf0-serena.sh up
+#
+# Deploys: Serena MCP server for remote repository access
+# Usage: ansible-playbook playbooks/serena.yml
+
+- name: Deploy cf0 Serena MCP
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  vars:
+    compose_file: "{{ compose_path }}/docker-compose.serena.yml"
+    env_file: "{{ compose_path }}/.env"
+    serena_root: "{{ vendor_path }}/serena"
+    serena_config_dir: "{{ admin_home }}/serena-config"
+
+  tasks:
+    - name: Ensure Serena config directory exists
+      ansible.builtin.file:
+        path: "{{ serena_config_dir }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0755'
+      tags: [config]
+
+    - name: Ensure .env file has Serena variables
+      ansible.builtin.lineinfile:
+        path: "{{ env_file }}"
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        create: true
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
+      loop:
+        - { key: SERENA_PORT, value: "{{ serena_port }}" }
+        - { key: SERENA_DASHBOARD_PORT, value: "{{ serena_dashboard_port }}" }
+        - { key: SERENA_VERSION, value: "{{ serena_version }}" }
+        - { key: SERENA_CONTEXT, value: "{{ serena_context }}" }
+        - { key: SERENA_PROJECTS_HOST_ROOT, value: "{{ serena_projects_host_root }}" }
+        - { key: SERENA_PROJECTS_CONTAINER_ROOT, value: "{{ serena_projects_container_root }}" }
+        - { key: SERENA_CONFIG_HOST_ROOT, value: "{{ serena_config_host_root }}" }
+      tags: [config]
+
+    - name: Update Serena source (if using main branch)
+      ansible.builtin.command:
+        cmd: git -C "{{ serena_root }}" fetch --tags --prune origin main
+      when: serena_version == 'main'
+      changed_when: false
+      tags: [update]
+
+    - name: Deploy Serena container
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - docker-compose.serena.yml
+        env_files:
+          - "{{ env_file }}"
+        state: present
+        detached: true
+        build: false
+      tags: [deploy]
+
+    - name: Wait for Serena to be healthy
+      ansible.builtin.command:
+        cmd: >-
+          python3 -c "import socket; 
+          s=socket.create_connection(('127.0.0.1', {{ serena_port }}), 2); 
+          s.close()"
+      register: serena_health
+      retries: 5
+      delay: 10
+      until: serena_health.rc == 0
+      failed_when: false
+      tags: [healthcheck]
+
+    - name: Display Serena connection info
+      ansible.builtin.debug:
+        msg:
+          - "Serena MCP is running"
+          - "Endpoint: http://127.0.0.1:{{ serena_port }}/mcp"
+          - "To connect: ssh -N -L {{ serena_port }}:127.0.0.1:{{ serena_port }} r@cf0"
+      tags: [info]

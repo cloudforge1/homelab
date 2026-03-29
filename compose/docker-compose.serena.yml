@@ -1,0 +1,44 @@
+# cf0 Serena MCP — remote Docker Compose service for remote-hosted repositories
+#
+# Operational constraints:
+# - Serena is stateful: one active project per server instance.
+# - This service can only access repositories mounted into the container.
+# - Default host root /home/r is mounted at /workspaces/home-r for remote repo activation.
+# - The MCP port is bound to 127.0.0.1 for SSH-tunneled use from a workstation.
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  serena:
+    <<: *restart
+    image: ghcr.io/oraios/serena:latest
+    container_name: cf0-serena
+    init: true
+    ports:
+      - "127.0.0.1:${SERENA_PORT:-9121}:9121"
+    command:
+      - uv
+      - run
+      - --directory
+      - .
+      - serena
+      - start-mcp-server
+      - --transport
+      - streamable-http
+      - --port
+      - "9121"
+      - --host
+      - "0.0.0.0"
+      - --context
+      - ${SERENA_CONTEXT:-ide}
+      - --enable-web-dashboard
+      - "False"
+    volumes:
+      - ${SERENA_PROJECTS_HOST_ROOT:-/home/r}:${SERENA_PROJECTS_CONTAINER_ROOT:-/workspaces/home-r}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 9121), 2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

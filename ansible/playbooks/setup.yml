@@ -1,0 +1,50 @@
+---
+# System Setup Playbook
+# Installs and configures base system requirements
+
+- name: Setup base system for homelab
+  hosts: homelab
+  become: true
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: [setup, apt]
+
+    - name: Install required system packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - net-tools
+          - jq
+          - python3-pip
+        state: present
+      tags: [setup, packages]
+
+  roles:
+    - role: docker
+      tags: [docker, setup]
+    - role: ddns
+      tags: [ddns]
+    - role: llm-stack
+      tags: [llm, stack]
+    - role: serena
+      tags: [serena]
+
+  post_tasks:
+    - name: Cleanup apt cache
+      apt:
+        autoclean: yes
+      tags: [cleanup]
+
+    - name: Remove unused packages
+      apt:
+        autoremove: yes
+      tags: [cleanup]
