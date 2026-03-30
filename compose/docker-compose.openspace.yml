@@ -6,52 +6,84 @@
 # Update:  pnpm openspace:update
 # ───────────────────────────────────────────────────────────────────
 
+name: cf-openspace
+
 x-restart: &restart
   restart: unless-stopped
 
 services:
 
-  # ── openspace — Dashboard API (skill evolution visualiser) ──────────
+  # ── openspace — Bundled dashboard UI + API ─────────────────────────
   openspace:
     <<: *restart
     build:
       context: ./openspace
       dockerfile: Dockerfile
-    image: cf0-openspace:latest
+      args:
+        OPENSPACE_REF: ${OPENSPACE_REF:-90b2ffab6ad7acdda006ba7ada6e62022a0531d6}
+    image: ${OPENSPACE_IMAGE:-cf0-openspace:latest}
     container_name: openspace
     ports:
-      - "0.0.0.0:7788:7788"
+      - "0.0.0.0:${OPENSPACE_PORT:-7788}:7788"
     environment:
-      # LLM backend — set in expand.env or via env on ubu1
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY:    ${OPENAI_API_KEY:-}
-      # Cloud skill community (optional — get key at https://open-space.cloud)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENSPACE_API_KEY: ${OPENSPACE_API_KEY:-}
       OPENSPACE_WORKSPACE: /app
       OPENSPACE_DASHBOARD_HOST: "0.0.0.0"
       OPENSPACE_DASHBOARD_PORT: "7788"
-      # Read-only capture mode: host skills are mounted :ro below.
-      # New skills captured by OpenSpace are written to the openspace-skills volume,
-      # not back to the host — protects Baidu-standard SKILL.md files from mutation.
       OPENSPACE_HOST_SKILL_DIRS: /app/openspace/host-skills
     volumes:
       - openspace-data:/app/.openspace
       - openspace-skills:/app/openspace/skills
-      # Host skill library — read-only so OpenSpace cannot mutate existing SKILLs
-      - /home/r/ai-tools/fabro/skills:/app/openspace/host-skills:ro
+      - ${OPENSPACE_HOST_SKILL_DIRS:-/home/r/ai-tools/fabro/skills}:/app/openspace/host-skills:ro
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 500M       # Dashboard-only mode (no local LLM inference); API keys drive cloud models
+          cpus: "${OPENSPACE_CPU_LIMIT:-1.0}"
+          memory: ${OPENSPACE_MEMORY_LIMIT:-500M}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7788/health || curl -sf http://localhost:7788/ || exit 1"]
+      test: ["CMD-SHELL", "html=$$(curl -fsS http://localhost:7788/) && printf '%s' \"$$html\" | grep -q 'OpenSpace Dashboard' && ! printf '%s' \"$$html\" | grep -q 'Build frontend/ first or run the Vite dev server.'"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
+  # ── openspace-mcp — MCP server for remote agents ───────────────────
+  openspace-mcp:
+    <<: *restart
+    image: ${OPENSPACE_IMAGE:-cf0-openspace:latest}
+    container_name: openspace-mcp
+    depends_on:
+      openspace:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:${OPENSPACE_MCP_PORT:-7789}:8080"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENSPACE_API_KEY: ${OPENSPACE_API_KEY:-}
+      OPENSPACE_WORKSPACE: /app
+      OPENSPACE_HOST_SKILL_DIRS: /app/openspace/host-skills
+    volumes:
+      - openspace-data:/app/.openspace
+      - openspace-skills:/app/openspace/skills
+      - ${OPENSPACE_HOST_SKILL_DIRS:-/home/r/ai-tools/fabro/skills}:/app/openspace/host-skills:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "${OPENSPACE_CPU_LIMIT:-1.0}"
+          memory: ${OPENSPACE_MEMORY_LIMIT:-500M}
+    healthcheck:
+      test: ["CMD-SHELL", "code=0; curl -fsS -N --max-time 2 http://localhost:8080/sse >/dev/null || code=$$?; [ \"$$code\" = 0 ] || [ \"$$code\" = 28 ]"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: ["openspace-mcp", "--transport", "sse", "--port", "8080"]
+
 volumes:
   openspace-data:
+    name: openspace-data
   openspace-skills:
-  # Note: /home/r/ai-tools/fabro/skills is a bind-mount (host path), not a named volume.
+    name: openspace-skills

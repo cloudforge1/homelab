@@ -1,37 +1,50 @@
-# OpenSpace — Self-evolving AI agent engine (dashboard API)
+# OpenSpace — Self-evolving AI agent engine (dashboard + API)
 # https://github.com/HKUDS/OpenSpace
-#
-# Clones latest OpenSpace at build time. Rebuild to update:
-#   docker compose -f docker-compose.openspace.yml build --no-cache openspace
-# ───────────────────────────────────────────────────────────
+
+ARG OPENSPACE_REF=90b2ffab6ad7acdda006ba7ada6e62022a0531d6
+
+FROM node:20-bookworm-slim AS source
+
+ARG OPENSPACE_REF
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+                git ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --filter=blob:none https://github.com/HKUDS/OpenSpace.git /src \
+        && git -C /src checkout "$OPENSPACE_REF" \
+        && rm -rf /src/.git
+
+FROM source AS frontend-builder
+
+WORKDIR /src/frontend
+
+RUN npm install \
+        && npm run build
 
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.source="https://github.com/HKUDS/OpenSpace"
-LABEL org.opencontainers.image.description="OpenSpace dashboard API"
+LABEL org.opencontainers.image.description="OpenSpace dashboard with bundled frontend"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+                curl ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
 
-# Clone OpenSpace (blob filter skips binary blobs like screenshots/images)
-RUN git clone --filter=blob:none \
-        https://github.com/HKUDS/OpenSpace.git /app
+COPY --from=source /src /app
 
 WORKDIR /app
 
-# Install Python deps (includes openspace-mcp and openspace-dashboard bins)
 RUN pip install --no-cache-dir -e .
 
-# Persist skill DB and model cache in named volumes
+COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
+
 RUN mkdir -p /app/.openspace /app/openspace/skills
 
 ENV OPENSPACE_WORKSPACE=/app
-# Make dashboard bind on all interfaces inside the container
 ENV OPENSPACE_DASHBOARD_HOST=0.0.0.0
 ENV OPENSPACE_DASHBOARD_PORT=7788
 
 EXPOSE 7788
 
-# Startup: dashboard API (frontend runs separately via pnpm openspace:dashboard:ui)
-CMD ["openspace-dashboard", "--port", "7788"]
+CMD ["openspace-dashboard", "--host", "0.0.0.0", "--port", "7788"]
