@@ -1,0 +1,19 @@
+[Unit]
+Description=Multi-WAN Load Balancer
+Documentation=man:ip(8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/rgr/W/cloudforge/homelab/multi-wan-lb.sh
+Restart=on-failure
+RestartSec=10
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
