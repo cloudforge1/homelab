@@ -1,6 +1,9 @@
 ---
 openspace_image: cf0-openspace:latest
+openspace_env_file: "{{ compose_path }}/.env"
 openspace_port: 7788
+openspace_mcp_port: 7789
+openspace_ref: 90b2ffab6ad7acdda006ba7ada6e62022a0531d6
 openspace_cpu_limit: "1.0"
 openspace_memory_limit: 500M
 host_skill_dirs: "{{ admin_home }}/ai-tools/fabro/skills"

@@ -3,31 +3,118 @@
 
 - name: Ensure host skill directory exists
   ansible.builtin.file:
-    path: "{{ admin_home }}/ai-tools/fabro/skills"
+    path: "{{ host_skill_dirs }}"
     state: directory
     owner: "{{ admin_user }}"
     group: "{{ admin_group }}"
     mode: '0755'
   tags: [openspace, config]
 
+- name: Ensure .env file has OpenSpace variables
+  ansible.builtin.lineinfile:
+    path: "{{ openspace_env_file }}"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    create: true
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  loop:
+    - { key: OPENSPACE_IMAGE, value: "{{ openspace_image }}" }
+    - { key: OPENSPACE_PORT, value: "{{ openspace_port }}" }
+    - { key: OPENSPACE_MCP_PORT, value: "{{ openspace_mcp_port }}" }
+    - { key: OPENSPACE_REF, value: "{{ openspace_ref }}" }
+    - { key: OPENSPACE_CPU_LIMIT, value: "{{ openspace_cpu_limit }}" }
+    - { key: OPENSPACE_MEMORY_LIMIT, value: "{{ openspace_memory_limit }}" }
+    - { key: OPENSPACE_HOST_SKILL_DIRS, value: "{{ host_skill_dirs }}" }
+  tags: [openspace, config]
+
+- name: Ensure OpenSpace compose build directory exists
+  ansible.builtin.file:
+    path: "{{ compose_path }}/openspace"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0755'
+  tags: [openspace, config]
+
+- name: Sync OpenSpace compose assets to host
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  loop:
+    - src: "{{ playbook_dir }}/../../compose/docker-compose.openspace.yml"
+      dest: "{{ compose_path }}/docker-compose.openspace.yml"
+    - src: "{{ playbook_dir }}/../../compose/openspace/Dockerfile"
+      dest: "{{ compose_path }}/openspace/Dockerfile"
+  tags: [openspace, config]
+
 - name: Deploy OpenSpace container
   community.docker.docker_compose_v2:
     project_src: "{{ compose_path }}"
+    project_name: cf-openspace
     files:
       - docker-compose.openspace.yml
+    env_files:
+      - "{{ openspace_env_file }}"
     state: present
-    detached: true
-    build: true
+    build: always
   tags: [openspace, deploy]
 
 - name: Wait for OpenSpace to be healthy
   ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ openspace_port }}/"
-    status_code: [200, 301, 302]
+    url: "http://127.0.0.1:{{ openspace_port }}/api/v1/health"
+    status_code: 200
     timeout: 30
+    return_content: true
   register: openspace_health
-  retries: 5
+  retries: 10
   delay: 15
-  until: openspace_health.status in [200, 301, 302]
-  failed_when: false
+  until:
+    - openspace_health.status == 200
+    - openspace_health.json is defined
+    - openspace_health.json.frontend_dist_exists | default(false) | bool
   tags: [openspace, healthcheck]
+
+- name: Verify OpenSpace dashboard UI is served
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openspace_port }}/"
+    status_code: 200
+    timeout: 30
+    return_content: true
+  register: openspace_dashboard
+  retries: 5
+  delay: 10
+  until:
+    - openspace_dashboard.status == 200
+    - "'OpenSpace Dashboard' in openspace_dashboard.content"
+    - "'Build frontend/ first or run the Vite dev server.' not in openspace_dashboard.content"
+  tags: [openspace, healthcheck]
+
+- name: Wait for OpenSpace MCP server to accept SSE connections
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/curl
+      - -fsS
+      - -N
+      - --max-time
+      - "2"
+      - "http://127.0.0.1:{{ openspace_mcp_port }}/sse"
+  register: openspace_mcp_health
+  retries: 5
+  delay: 10
+  changed_when: false
+  failed_when: openspace_mcp_health.rc not in [0, 28]
+  until: openspace_mcp_health.rc in [0, 28]
+  tags: [openspace, healthcheck]
+
+- name: Display OpenSpace info
+  ansible.builtin.debug:
+    msg:
+      - "OpenSpace Dashboard: http://cf0:{{ openspace_port }}"
+      - "OpenSpace MCP: http://cf0:{{ openspace_mcp_port }}/sse"
+      - "Host skills mounted from: {{ host_skill_dirs }}"
+  tags: [openspace, info]
