@@ -85,17 +85,36 @@ enable_model_qwen3_next: false
 enable_model_gpt_oss_20b: false
 enable_model_olmo_3_1_32b: false
 
-# ── Feature Toggles (cf0-llm-tools.sh) ──────────────────────────────
+# ── CLI Tools / Optional AI Apps ────────────────────────────────────
 enable_zeroclaw: true
-enable_mindsdb: true
-enable_cognee: true
-enable_flowise: true
-enable_unsloth: true
+enable_flowise: false
+enable_unsloth: false
 enable_claude_code: true
 enable_metaclaw: true
 enable_uv: true
-enable_gstack: true
-enable_onyx: true
+enable_gstack: false
+enable_onyx: false
+enable_docling: true
+enable_fnm: true
+enable_snitch: true
+enable_terminal_tools: true
+
+fnm_node_version: "22"
+terminal_tools_apt_packages:
+  - fzf
+  - ripgrep
+  - fd-find
+  - bat
+  - hstr
+  - btop
+  - zoxide
+  - eza
+  - lazygit
+
+flowise_port: 7861
+unsloth_port: 8888
+onyx_port: 3100
+docling_port: 5001
 
 # ── Scrutiny ────────────────────────────────────────────────────────
 scrutiny_port: 7786
@@ -112,6 +131,286 @@ scrutiny_devices:
 openspace_port: 7788
 openspace_memory_limit: 500M
 openspace_cpu_limit: "1.0"
+
+# ── Vector Databases (Chroma, Weaviate, Milvus) ─────────────────────
+chroma_port: 8020
+chroma_version: latest
+chroma_auth_token: ""
+chroma_auth_provider: ""
+chroma_auth_header: ""
+
+weaviate_port: 8090
+weaviate_grpc_port: 50051
+weaviate_version: "1.27.0"
+weaviate_query_limit: 25
+weaviate_anon_access: true
+weaviate_vectorizer: none
+weaviate_modules: "text2vec-openai,text2vec-cohere,text2vec-huggingface,generative-openai,generative-cohere,qna-openai,reranker-cohere"
+weaviate_apikey_enabled: false
+weaviate_apikeys: ""
+weaviate_apikey_users: ""
+weaviate_adminlist_enabled: false
+weaviate_admin_users: ""
+
+milvus_version: v2.5.0
+milvus_port: 19530
+milvus_health_port: 9091
+minio_version: latest
+milvus_minio_access_key: minioadmin
+milvus_minio_secret_key: minioadmin
+
+# ===================================================================
+# AI TOOLS (docker-compose.ai-tools.yml)
+# Categories: OCR, Speech, TTS, Audio, Translation, Image, Code,
+#             Gateway, Video, RAG, Email, Privacy, Memory, NSFW, Notable
+#
+# States: "running" | "stopped" | "disabled"
+#   running  — Deploy + start (consumes RAM, binds port)
+#   stopped  — Pull image + create container, keep stopped (0 RAM, 0 CPU)
+#   disabled — Not deployed at all (default)
+#
+# Hardware: cf0 — i9-9900K (16t), 107GB RAM, GTX 1060 6GB (Pascal SM 6.1)
+# HARD BLOCKERS on this hardware:
+#   - vLLM GPU mode: requires SM 8.0+ (Ampere); Pascal SM 6.1 is blocked
+#   - Rope (face swap): RTX/tensor core optimizations; Pascal is impractically slow
+#   - kohya_ss (LoRA training): needs 8+ GB VRAM; 6GB is insufficient for SDXL
+#   - Email tools (AnonAddy, SimpleLogin, Mailu): need port 25 unblocked + DNS/MX
+# ===================================================================
+
+# ── Document OCR & Understanding ────────────────────────────────────
+# HW: All CPU-friendly. GLM-OCR needs LLM backend (use Ollama).
+enable_glm_ocr: running
+enable_paddle_ocr: stopped
+enable_marker: stopped
+
+# ── Speech-to-Text (Transcription) ─────────────────────────────────
+# HW: All easy. Faster-Whisper/WhisperX fit 6GB VRAM; CPU mode works too.
+enable_faster_whisper: stopped
+enable_whisper_x: stopped
+enable_funasr: stopped
+
+# ── Text-to-Speech (TTS) ───────────────────────────────────────────
+# HW: All CPU-only or lightweight. Piper = <100ms latency on CPU.
+enable_piper: stopped
+enable_kokoro_fastapi: stopped
+enable_paddle_speech: stopped
+
+# ── Audio Separation & Processing ──────────────────────────────────
+# HW: Demucs/UVR5 run fine on CPU (107GB RAM handles models easily).
+enable_demucs: stopped
+enable_uvr5: stopped
+enable_audiosep: stopped
+
+# ── Translation ─────────────────────────────────────────────────────
+# HW: All CPU-first. Lightweight models, no GPU needed.
+enable_pdf_math_translate: stopped
+enable_libre_translate: stopped
+enable_argos_translate: stopped
+
+# ── Image Generation ────────────────────────────────────────────────
+# HW: POSSIBLE — SD 1.5 runs fine on 6GB; SDXL needs --lowvram flags.
+# NOTE: ComfyUI is the most flexible backend for low-VRAM.
+enable_comfyui: stopped
+enable_fooocus: stopped
+enable_swarmui: stopped
+
+# ── Image Enhancement & Restoration ────────────────────────────────
+# HW: All easy. Tile-based processing keeps VRAM low. Fits 6GB fine.
+enable_real_esrgan: stopped
+enable_gfpgan: stopped
+enable_clarity_upscaler: stopped
+
+# ── AI Code Assistant ──────────────────────────────────────────────
+# HW: Aider/Continue route to Ollama (zero local inference).
+# Tabby = POSSIBLE — small code models only, high latency on CPU.
+enable_aider: stopped
+enable_tabby: stopped
+
+# ── LLM Gateway & Routing ──────────────────────────────────────────
+# HW: All easy — pure proxy/observability, no ML inference.
+enable_litellm: stopped
+enable_langfuse: stopped
+enable_infinity: stopped
+
+# ── Video Download & Processing ────────────────────────────────────
+# HW: All easy — no ML inference, just yt-dlp + ffmpeg.
+enable_cobalt: stopped
+enable_metube: stopped
+enable_reclip: stopped
+
+# ── RAG & Document Chat ────────────────────────────────────────────
+# HW: All easy — route to existing Ollama + Qdrant/Chroma stack.
+enable_privategpt: stopped
+enable_anythingllm: stopped
+enable_paperqa2: stopped
+
+# ── Email Privacy ──────────────────────────────────────────────────
+# ⚠️ BLOCKER: Need port 25 unblocked + DNS/MX/SSL setup.
+enable_anonaddy: stopped
+enable_simplelogin: stopped
+enable_mailu: stopped
+
+# ── Privacy & Anonymization ────────────────────────────────────────
+# HW: Presidio/SecretScanner = easy (CPU). PII Detector uses Ollama.
+enable_presidio: stopped
+enable_secret_scanner: stopped
+enable_pii_detector: stopped
+
+# ── AI Memory & Cognitive ──────────────────────────────────────────
+# HW: All easy — route to existing Ollama + Qdrant stack.
+enable_mem0: stopped
+enable_letta: stopped
+
+# ── NSFW / 18+ Tools ───────────────────────────────────────────────
+# FaceFusion/RVC/Applio/AnimateDiff: POSSIBLE on 6GB (inference OK, training slow)
+# ⚠️ BLOCKER: Rope = RTX/tensor core optimized (Pascal too slow)
+# ⚠️ BLOCKER: kohya_ss = LoRA training needs 8+ GB VRAM
+enable_fusion: stopped
+enable_rope: stopped               # BLOCKED: needs RTX tensor cores
+enable_rvc: stopped
+enable_applio: stopped
+enable_bark: stopped
+enable_kohya: stopped              # BLOCKED: needs 8+ GB VRAM for training
+enable_animatediff: stopped
+enable_deepfacelive: stopped       # Real-time deepfake for video calls
+enable_roop_discontinued: stopped  # Original one-click face swap (forked to FaceFusion)
+enable_moore_animateanyone: stopped # Pose-driven character animation
+enable_magicanimate: stopped       # Densepose-guided human animation
+enable_ai_toolkit: stopped         # Microsoft's LoRA training toolkit
+enable_stability_matrix: stopped   # Package manager for SD UIs
+
+# ── Also Notable (Optional) ────────────────────────────────────────
+# HW: All easy or lightweight. Auto1111 runs SD 1.5 fine on 6GB.
+enable_surya: stopped
+enable_docling: stopped
+enable_nougat: stopped             # PDF → Markdown (academic papers)
+enable_whisper_cpp: stopped
+enable_speechbrain: stopped        # Speech toolkit (ASR, TTS, speaker)
+enable_coqui_tts: stopped           # TTS (no longer maintained but functional)
+enable_edge_tts: stopped            # Zero-GPU TTS via Edge Online TTS API
+enable_spleeter: stopped            # Audio stem separation (outdated by Demucs)
+enable_invokeai: stopped            # SD image gen (polished, 27k stars)
+enable_codeformer: stopped          # Face restoration (alternative to GFPGAN)
+enable_swinir: stopped              # Image restoration (alternative to ESRGAN)
+enable_sglang: stopped              # LLM serving (alternative to vLLM; ⚠️ may need SM 8.0)
+enable_tensorrt_llm: stopped        # NVIDIA TensorRT LLM (⚠️ BLOCKED: needs SM 8.0+)
+enable_smarter_router: stopped      # VRAM-aware LLM routing
+enable_yt_dlp_web_ui: stopped       # NAS-friendly yt-dlp web UI
+enable_stalwart: stopped            # Modern mail server (alternative to Mailu)
+enable_postal: stopped              # Transactional mail server
+enable_opensanctions: stopped       # Org/person screening
+enable_gophish: stopped             # Phishing simulation/testing
+enable_recallium: stopped           # AI memory (minimal, 28 stars)
+enable_zenii: stopped               # 20MB memory brain (minimal, 16 stars)
+enable_auto1111: stopped
+enable_tubearchivist: stopped
+enable_dify: stopped
+enable_bloop: stopped
+
+# ── Python Library Tools (Conda Envs) ──────────────────────────────
+# These are NOT Docker services — installed as host Conda environments.
+# HW: All POSSIBLE — CPU inference works but slow. 107GB RAM handles models.
+# ⚠️ BLOCKER: vLLM GPU mode is hard-blocked (SM 6.1 < SM 8.0 required)
+enable_conda_ai_libs: stopped       # transformers, bitsandbytes, accelerate
+enable_conda_airllm: stopped        # AirLLM (70B-405B on 4GB via layer streaming)
+enable_conda_heretic: stopped       # LLM decensor via abliteration
+enable_conda_mergekit: stopped      # Model merging (SLERP, TIES, DARE)
+enable_conda_exllama: stopped       # exllamav2 (4-bit EXL2 inference)
+enable_conda_abliteration: stopped  # Simpler LLM uncensor
+
+# ── AI Tools Port Assignments ──────────────────────────────────────
+# OCR
+glm_ocr_port: 5520
+paddle_ocr_port: 5510
+marker_port: 5511
+
+# Speech-to-Text
+faster_whisper_port: 5501
+whisper_x_port: 5502
+funasr_port: 5503
+
+# TTS
+piper_port: 5500
+kokoro_fastapi_port: 5504
+paddle_speech_port: 5505
+
+# Audio
+demucs_port: 5506
+uvr5_port: 5507
+audiosep_port: 5508
+
+# Translation
+pdf_math_translate_port: 5509
+libre_translate_port: 5512
+argos_translate_port: 5513
+
+# Image Generation
+comfyui_port: 7861
+fooocus_port: 7862
+swarmui_port: 7863
+
+# Image Enhancement
+real_esrgan_port: 5514
+gfpgan_port: 5515
+clarity_upscaler_port: 5516
+
+# Code Assistant
+aider_port: 5517
+tabby_port: 5518
+
+# LLM Gateway
+litellm_port: 4000
+langfuse_port: 5519
+infinity_port: 7997
+
+# Video Download
+cobalt_port: 5521
+metube_port: 5522
+reclip_port: 8899
+
+# RAG & Document Chat
+privategpt_port: 5523
+anythingllm_port: 3001
+paperqa2_port: 5524
+
+# Email Privacy
+anonaddy_port: 80
+simplelogin_port: 5525
+mailu_smtp_port: 25
+mailu_http_port: 5526
+
+# Privacy & Anonymization
+presidio_port: 5527
+secret_scanner_port: 5528
+pii_detector_port: 5529
+
+# AI Memory
+mem0_port: 5530
+letta_port: 5531
+
+# NSFW Tools
+fusion_port: 5532
+rope_port: 5533
+rvc_port: 5534
+applio_port: 5535
+bark_port: 5536
+kohya_port: 5537
+animatediff_port: 5538
+deepfacelive_port: 5564
+roop_discontinued_port: 5565
+moore_animateanyone_port: 5566
+magicanimate_port: 5567
+ai_toolkit_port: 5568
+stability_matrix_port: 5569
+
+# Also Notable
+surya_port: 5539
+docling_port: 5540
+whisper_cpp_port: 5541
+auto1111_port: 5542
+tubearchivist_port: 5543
+dify_port: 5544
+bloop_port: 5545
 
 # ===================================================================
 # HOST RUNTIMES
@@ -289,6 +588,213 @@ host_runtime_python_env_matrix:
       validation:
         - python --version
         - python -c "import vllm; print(vllm.__version__)"
+
+    # ── AI Tools Libraries (shared) ──────────────────────────────────
+    # Purpose: Common AI/ML libraries for CLI tools (Heretic, mergekit, etc.)
+    # Strategy: Separate env to avoid bloating py310pt211cpu with heavy deps
+    # ⚠️ BLOCKER note: vLLM GPU mode hard-blocked (SM 6.1 < SM 8.0)
+    - name: py310ai-libs
+      enabled: "{{ enable_conda_ai_libs == 'stopped' or enable_conda_ai_libs == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: ai-libs
+      framework_version: "2026.04"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - torchvision==0.16.1
+        - torchaudio==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - bitsandbytes>=0.43.0
+        - safetensors>=0.4.0
+        - peft>=0.11.0
+        - optuna>=3.6.0
+        - scipy>=1.11.0
+        - numpy>=1.24.0
+        - huggingface-hub>=0.23.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        TRANSFORMERS_CACHE: "{{ host_runtime_root }}/envs/py310ai-libs/.cache/huggingface"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import torch, transformers, bitsandbytes; print('AI libs ready')"
+
+    # ── AirLLM (low VRAM LLM inference) ──────────────────────────────
+    # Purpose: Run 70B-405B models on 4GB GPU via layer streaming
+    # Strategy: Isolated env due to large model cache and specialized deps
+    # HW: CPU mode works on i9-9900K but very slow. 107GB RAM handles models.
+    - name: py310airllm
+      enabled: "{{ enable_conda_airllm == 'stopped' or enable_conda_airllm == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: airllm
+      framework_version: "2.12.0"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - safetensors>=0.4.0
+        - bitsandbytes>=0.43.0
+        - airllm>=2.12.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        AIRLLM_CACHE_DIR: "{{ host_runtime_root }}/envs/py310airllm/.cache/airllm"
+        TRANSFORMERS_CACHE: "{{ host_runtime_root }}/envs/py310airllm/.cache/huggingface"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "from airllm import AirLLM; print('AirLLM ready')"
+
+    # ── Heretic (LLM decensor) ───────────────────────────────────────
+    # Purpose: Auto-uncensor LLMs via abliteration + TPE optimizer
+    # Strategy: Uses py310ai-libs base + heretic-specific packages
+    # HW: POSSIBLE — 6GB VRAM tight for 8B models; bitsandbytes 4-bit helps.
+    - name: py310heretic
+      enabled: "{{ enable_conda_heretic == 'stopped' or enable_conda_heretic == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: heretic
+      framework_version: "1.0.0"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - bitsandbytes>=0.43.0
+        - optuna>=3.6.0
+        - safetensors>=0.4.0
+        - peft>=0.11.0
+        - heretic>=1.0.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        HERETIC_CACHE_DIR: "{{ host_runtime_root }}/envs/py310heretic/.cache/heretic"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import heretic; print('Heretic ready')"
+
+    # ── mergekit (LLM merging) ───────────────────────────────────────
+    # Purpose: Merge LLMs via SLERP, TIES, DARE, passthrough
+    # Strategy: Uses py310ai-libs base + mergekit
+    # HW: POSSIBLE — CPU-bound batch job; slow but functional with 107GB RAM.
+    - name: py310mergekit
+      enabled: "{{ enable_conda_mergekit == 'stopped' or enable_conda_mergekit == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: mergekit
+      framework_version: "0.0.5"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - safetensors>=0.4.0
+        - mergekit>=0.0.5
+        - tqdm
+        - numpy
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        MERGEKIT_CACHE_DIR: "{{ host_runtime_root }}/envs/py310mergekit/.cache/mergekit"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import mergekit; print('mergekit ready')"
+
+    # ── exllamav2 (VRAM optimization) ──────────────────────────────
+    # Purpose: Optimized inference for 4-bit GGUF/EXL2 models
+    # Strategy: Separate env due to specialized CUDA kernels
+    # HW: POSSIBLE — works on Pascal but optimized for newer architectures.
+    - name: py310exllama
+      enabled: "{{ enable_conda_exllama == 'stopped' or enable_conda_exllama == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: exllamav2
+      framework_version: "0.2.0"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - safetensors>=0.4.0
+        - exllamav2>=0.2.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        EXLLAMA_CACHE_DIR: "{{ host_runtime_root }}/envs/py310exllama/.cache/exllama"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import exllamav2; print('exllamav2 ready')"
+
+    # ── abliteration (LLM uncensor) ─────────────────────────────────
+    # Purpose: Uncensor LLMs without TransformerLens
+    # Strategy: Simpler alternative to Heretic
+    # HW: POSSIBLE — same 6GB VRAM constraint as Heretic.
+    - name: py310abliteration
+      enabled: "{{ enable_conda_abliteration == 'stopped' or enable_conda_abliteration == 'running' }}"
+      supported: true
+      python: "3.10"
+      framework: abliteration
+      framework_version: "1.0.0"
+      accelerator: cpu
+      install_method: pip
+      conda_packages:
+        - pip
+      pip_packages:
+        - torch==2.1.1
+        - transformers>=4.40.0
+        - accelerate>=0.30.0
+        - bitsandbytes>=0.43.0
+        - safetensors>=0.4.0
+        - abliteration>=1.0.0
+      extra_index_urls:
+        - https://download.pytorch.org/whl/cpu
+      env_vars:
+        ABLITERATION_CACHE_DIR: "{{ host_runtime_root }}/envs/py310abliteration/.cache/abliteration"
+      constraints:
+        requires_avx2: false
+        disallow_pascal: false
+        requires_cuda_toolkit: false
+      validation:
+        - python --version
+        - python -c "import abliteration; print('abliteration ready')"
 
 host_runtime_inference_services:
   vllm:
