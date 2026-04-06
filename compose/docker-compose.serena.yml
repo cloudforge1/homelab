@@ -4,7 +4,9 @@
 # - Serena is stateful: one active project per server instance.
 # - This service can only access repositories mounted into the container.
 # - Default host root /home/r is mounted at /workspaces/home-r for remote repo activation.
-# - The MCP port is bound to 127.0.0.1 for SSH-tunneled use from a workstation.
+# - The MCP port is exposed on 0.0.0.0 for LAN access from workstations.
+
+name: cf-serena
 
 x-restart: &restart
   restart: unless-stopped
@@ -16,7 +18,7 @@ services:
     container_name: cf0-serena
     init: true
     ports:
-      - "127.0.0.1:${SERENA_PORT:-9121}:9121"
+      - "0.0.0.0:${SERENA_PORT:-9121}:9121"
     command:
       - uv
       - run
@@ -42,3 +44,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    networks:
+      - default
+      - homelab-network
+
+networks:
+  homelab-network:
+    external: true
+    name: ${HOMELAB_NETWORK_NAME:-homelab-network}

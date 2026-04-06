@@ -19,7 +19,6 @@
         files:
           - docker-compose.scrutiny.yml
         state: present
-        detached: true
       tags: [scrutiny, deploy]
 
     - name: Wait for Scrutiny to be healthy

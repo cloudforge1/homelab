@@ -15,7 +15,6 @@
     services:
       - cognee
     state: present
-    detached: true
   tags: [cognee, deploy]
 
 - name: Wait for Cognee API to be ready

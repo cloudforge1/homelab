@@ -14,26 +14,35 @@
     local_user: "{{ admin_user }}"
     local_home: "{{ admin_home }}"
     compose_dir: "{{ compose_path }}"
-    nic_name: "{{ nic_name | default('eno1') }}"
-    bandwidth_limit: "{{ bandwidth_limit | default('50mbit') }}"
 
   pre_tasks:
     - name: Check prerequisites
-      assert:
+      ansible.builtin.assert:
         that:
           - ansible_memtotal_mb >= 100000  # 100GB minimum
           - ansible_processor_vcpus >= 8
         fail_msg: "Hardware requirements not met"
 
+    - name: Check existing tc qdisc
+      ansible.builtin.command:
+        cmd: "tc qdisc show dev {{ nic_name | default('eno1') }}"
+      register: tc_qdisc
+      changed_when: false
+      failed_when: false
+      tags: [network, bandwidth]
+
+    - name: Remove existing bandwidth limit
+      ansible.builtin.command:
+        cmd: "tc qdisc del dev {{ nic_name | default('eno1') }} root"
+      when: "'tbf' in tc_qdisc.stdout or 'htb' in tc_qdisc.stdout"
+      changed_when: true
+      failed_when: false
+      tags: [network, bandwidth]
+
     - name: Apply bandwidth limit (50% of 100Mbps)
-      community.general.tc:
-        device: "{{ nic_name }}"
-        classid: "1:10"
-        rate: "{{ bandwidth_limit }}"
-        ceil: "{{ bandwidth_limit }}"
-        burst: 32k
-        quantum: 1514
-        state: present
+      ansible.builtin.command:
+        cmd: "tc qdisc add dev {{ nic_name | default('eno1') }} root tbf rate {{ bandwidth_limit | default('50mbit') }} burst 32kbit latency 400ms"
+      changed_when: true
       tags: [network, bandwidth]
 
   tasks:

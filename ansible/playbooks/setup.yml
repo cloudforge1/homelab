@@ -1,6 +1,6 @@
 ---
 # cf0 Full Stack Playbook
-# Equivalent to: bash /opt/homelab/cf0-llm-stack.sh && bash /opt/homelab/cf0-llm-tools.sh
+# Equivalent to: compose stack deployment plus optional ai-apps and separate cli tools
 #
 # Deploys complete LLM + AI Tools infrastructure:
 #   Core: Ollama, Open WebUI, SearXNG

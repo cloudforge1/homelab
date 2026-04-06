@@ -94,11 +94,26 @@ ansible-playbook playbooks/expand-stack.yml -e "compose_action=restart"
 ansible-playbook playbooks/ddns.yml
 ```
 
+### 6. Host runtimes (CUDA, Conda, Python envs)
+```bash
+# Full run
+ansible-playbook playbooks/host-runtimes.yml
+
+# Preflight only (hardware detection, no changes)
+ansible-playbook playbooks/host-runtimes.yml --tags preflight
+
+# Just install Conda + create envs
+ansible-playbook playbooks/host-runtimes.yml --tags conda,envs
+
+# Dry run
+ansible-playbook playbooks/host-runtimes.yml --check --diff
+```
+
 ## Playbooks
 
 | Playbook | Equivalent Bash Command | Description |
 |----------|------------------------|-------------|
-| `setup.yml` | `cf0-llm-stack.sh` + `cf0-llm-tools.sh` | Full deployment |
+| `setup.yml` | Compose stack deployment | Full deployment |
 | `llm-stack.yml` | `cf0-stack.sh up` | Core LLM services |
 | `openrag-stack.yml` | `docker compose -f docker-compose.openrag.yml up` | OpenRAG |
 | `expand-stack.yml` | `cf0-stack.sh` (expand) | Additional services |
@@ -106,7 +121,8 @@ ansible-playbook playbooks/ddns.yml
 | `monitoring.yml` | `docker compose -f docker-compose.scrutiny.yml up` | Scrutiny |
 | `openspace.yml` | `pnpm openspace:deploy` | OpenSpace |
 | `ddns.yml` | `cf0-ddns.sh` | DDNS update |
-| `llm-tools.yml` | `cf0-llm-tools.sh` | Install tools |
+| `llm-tools.yml` | Host-native CLI tooling subset | Wraps the `cli-tools` role |
+| `host-runtimes.yml` | *(standalone)* | CUDA policy, Conda envs, Python runtimes |
 
 ## Common Commands
 
@@ -142,8 +158,10 @@ serena_context: ide
 
 # Feature toggles
 enable_zeroclaw: true
-enable_mindsdb: true
-enable_cognee: true
+enable_claude_code: true
+enable_terminal_tools: true
+enable_flowise: false
+enable_unsloth: false
 
 # Ollama model sync
 enable_model_qwen35_9b: true
@@ -179,8 +197,11 @@ ansible/
 │   ├── monitoring.yml       # Scrutiny
 │   ├── openspace.yml        # OpenSpace
 │   ├── ddns.yml             # DDNS update
-│   └── llm-tools.yml        # Tool installation
+│   ├── llm-tools.yml        # CLI tools role wrapper
+│   └── host-runtimes.yml    # CUDA, Conda, Python envs
 ├── roles/
+│   ├── cli-tools/           # Host-native CLI tooling
+│   ├── host-runtimes/       # Host runtime provisioning
 │   ├── ollama/              # Ollama runtime
 │   ├── open-webui/          # Chat interface
 │   ├── searxng/             # Search engine
@@ -202,7 +223,7 @@ ansible/
 | `bash cf0-stack.sh up` | `ansible-playbook playbooks/llm-stack.yml` |
 | `bash cf0-serena.sh up` | `ansible-playbook playbooks/serena.yml` |
 | `bash cf0-ddns.sh` | `ansible-playbook playbooks/ddns.yml` |
-| `bash cf0-llm-tools.sh` | `ansible-playbook playbooks/llm-tools.yml` |
+| `bash cf0-llm-tools.sh` | `ansible-playbook playbooks/llm-tools.yml` + `ansible-playbook playbooks/ai-apps.yml` |
 
 ## Benefits Over Bash Scripts
 
@@ -214,6 +235,57 @@ ansible/
 6. **Vault** - Encrypted secrets
 7. **Parallel execution** - Deploy to multiple hosts
 8. **Templating** - Jinja2 for dynamic configs
+
+## Host Runtimes
+
+The `host-runtimes` role manages bare-metal CUDA policy, Miniforge/Conda, and a declarative Python environment matrix — independent of Docker Compose services.
+
+### Tags
+
+| Tag | Scope |
+|-----|-------|
+| `host-runtimes` | Full role |
+| `preflight` | Hardware detection, policy assertions |
+| `cuda` | CUDA toolkit policy (detect-only by default) |
+| `conda` | Miniforge3 installation + condarc |
+| `envs` | Conda environment creation + pip packages |
+| `wrappers` | `hr-conda` and `hr-<env>` wrapper scripts |
+| `validate` | Per-env smoke tests |
+
+### Default Environments (enabled)
+
+| Name | Python | Framework | Accelerator |
+|------|--------|-----------|-------------|
+| `py310pp26` | 3.10 | PaddlePaddle 2.6.2 | CPU |
+| `py310pp30` | 3.10 | PaddlePaddle 3.0.0 | CPU |
+| `py310pt211cpu` | 3.10 | PyTorch 2.1.1 | CPU |
+
+### Disabled Environments (opt-in)
+
+| Name | Reason |
+|------|--------|
+| `py310pt211cu126` | Torch 2.1.1 has no cu126 wheel |
+| `py311pt260cu126` | Requires CUDA toolkit setup |
+| `py310vllmcpu` | AVX2 required, large install |
+
+### CUDA Safety
+
+- Default mode: **detect-only** (reports GPU/toolkit, never installs)
+- To enable installs: set `host_runtime_cuda.mode: install` and `allow_mutation: true` in `group_vars/all.yml`
+- Pascal (GTX 1060) blocks: vLLM GPU mode hard-blocked; SM 6.1 too old for SM 8.0+ ops
+
+### Wrapper Scripts
+
+After deployment, use wrapper scripts on cf0:
+
+```bash
+# Activate any env via wrapper
+hr-py310pp26 python -c "import paddle; print(paddle.__version__)"
+hr-py310pt211cpu python -c "import torch; print(torch.__version__)"
+
+# Direct conda access
+hr-conda info --envs
+```
 
 ## Troubleshooting
 

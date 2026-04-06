@@ -1,15 +1,21 @@
 ---
 # Open WebUI role - Chat interface
 
+- name: Ensure shared homelab network exists
+  community.docker.docker_network:
+    name: "{{ docker_network_name }}"
+    state: present
+  tags: [open-webui, network]
+
 - name: Deploy Open WebUI container
   community.docker.docker_compose_v2:
     project_src: "{{ compose_path }}"
+    project_name: cf-core
     files:
       - docker-compose.yml
     services:
       - open-webui
     state: present
-    detached: true
   tags: [open-webui, deploy]
 
 - name: Wait for Open WebUI to be ready

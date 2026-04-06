@@ -29,6 +29,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENSPACE_API_KEY: ${OPENSPACE_API_KEY:-}
+      OPENSPACE_MODEL: ${OPENSPACE_MODEL:-ollama/qwen3.5:27b}
+      OPENSPACE_LLM_API_BASE: ${OPENSPACE_LLM_API_BASE:-http://ollama:11434}
       OPENSPACE_WORKSPACE: /app
       OPENSPACE_DASHBOARD_HOST: "0.0.0.0"
       OPENSPACE_DASHBOARD_PORT: "7788"
@@ -48,6 +50,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    networks:
+      - default
+      - homelab-network
 
   # ── openspace-mcp — MCP server for remote agents ───────────────────
   openspace-mcp:
@@ -63,6 +68,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENSPACE_API_KEY: ${OPENSPACE_API_KEY:-}
+      OPENSPACE_MODEL: ${OPENSPACE_MODEL:-ollama/qwen3.5:27b}
+      OPENSPACE_LLM_API_BASE: ${OPENSPACE_LLM_API_BASE:-http://ollama:11434}
       OPENSPACE_WORKSPACE: /app
       OPENSPACE_HOST_SKILL_DIRS: /app/openspace/host-skills
     volumes:
@@ -81,9 +88,17 @@ services:
       retries: 3
       start_period: 30s
     command: ["openspace-mcp", "--transport", "sse", "--port", "8080"]
+    networks:
+      - default
+      - homelab-network
 
 volumes:
   openspace-data:
     name: openspace-data
   openspace-skills:
     name: openspace-skills
+
+networks:
+  homelab-network:
+    external: true
+    name: ${HOMELAB_NETWORK_NAME:-homelab-network}

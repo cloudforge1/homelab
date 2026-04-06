@@ -101,6 +101,10 @@ openspace: ## OpenSpace skill dashboard
 serena: ## Serena MCP server
 	$(call run_playbook,serena.yml)
 
+.PHONY: vectordbs
+vectordbs: ## Vector databases (Chroma, Weaviate, Milvus)
+	$(call run_playbook,vectordbs.yml)
+
 .PHONY: ddns
 ddns: ## Dynamic DNS setup
 	$(call run_playbook,ddns.yml)
@@ -112,6 +116,75 @@ bootstrap: ## Host bootstrap (APT, Docker, NVIDIA, sysctl, UFW)
 .PHONY: ai-apps
 ai-apps: ## Optional AI apps (Flowise, Unsloth, Onyx) — disabled by default
 	$(call run_playbook,ai-apps.yml)
+
+.PHONY: ai-tools
+ai-tools: ## Comprehensive AI/ML tools (OCR, Speech, TTS, Audio, Translation, Image, Code, Gateway, Video, RAG, Email, Privacy, Memory)
+	$(call run_playbook,ai-tools.yml)
+
+.PHONY: ai-tools-ocr
+ai-tools-ocr: ## AI Tools: Document OCR (GLM-OCR, PaddleOCR, Marker)
+	$(call run_playbook,ai-tools.yml)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags ocr
+
+.PHONY: ai-tools-speech
+ai-tools-speech: ## AI Tools: Speech-to-Text (Faster-Whisper, WhisperX, FunASR)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags speech
+
+.PHONY: ai-tools-tts
+ai-tools-tts: ## AI Tools: Text-to-Speech (Piper, Kokoro, PaddleSpeech)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags tts
+
+.PHONY: ai-tools-audio
+ai-tools-audio: ## AI Tools: Audio Separation (Demucs, UVR5, AudioSep)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags audio
+
+.PHONY: ai-tools-translation
+ai-tools-translation: ## AI Tools: Translation (PDFMathTranslate, LibreTranslate, Argos)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags translation
+
+.PHONY: ai-tools-image-gen
+ai-tools-image-gen: ## AI Tools: Image Generation (ComfyUI, Fooocus, SwarmUI)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags image-gen
+
+.PHONY: ai-tools-image-enhance
+ai-tools-image-enhance: ## AI Tools: Image Enhancement (Real-ESRGAN, GFPGAN, Clarity)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags image-enhance
+
+.PHONY: ai-tools-code
+ai-tools-code: ## AI Tools: Code Assist (Aider, Tabby)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags code
+
+.PHONY: ai-tools-gateway
+ai-tools-gateway: ## AI Tools: LLM Gateway (LiteLLM, Langfuse, Infinity)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags gateway
+
+.PHONY: ai-tools-video
+ai-tools-video: ## AI Tools: Video Download (Cobalt, MeTube, Reclip)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags video
+
+.PHONY: ai-tools-rag
+ai-tools-rag: ## AI Tools: RAG & Document Chat (PrivateGPT, AnythingLLM, PaperQA2)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags rag
+
+.PHONY: ai-tools-email
+ai-tools-email: ## AI Tools: Email Privacy (AnonAddy, SimpleLogin, Mailu)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags email
+
+.PHONY: ai-tools-privacy
+ai-tools-privacy: ## AI Tools: Privacy & Anonymization (Presidio, SecretScanner, PII Detector)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags privacy
+
+.PHONY: ai-tools-memory
+ai-tools-memory: ## AI Tools: AI Memory (Mem0, Letta)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags memory
+
+.PHONY: ai-tools-nsfw
+ai-tools-nsfw: ## AI Tools: NSFW/18+ (FaceFusion, Rope, RVC, Applio, Bark, kohya, AnimateDiff)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags nsfw
+
+.PHONY: ai-tools-notable
+ai-tools-notable: ## AI Tools: Also Notable (Surya, Docling, whisper.cpp, Auto1111, TubeArchivist, Dify, Bloop)
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ai-tools.yml --tags also-notable
 
 # ── Generic deploy lifecycle ─────────────────────────────────────────────────
 # ACTION: up (default), down, restart, pull
@@ -135,6 +208,8 @@ pull: ## Pull latest images for all stacks
 	$(MAKE) deploy ACTION=pull PROJECT=cf-openrag FILES=docker-compose.openrag.yml
 	$(MAKE) deploy ACTION=pull PROJECT=cf-expand FILES=docker-compose.expand.yml
 	$(MAKE) deploy ACTION=pull PROJECT=cf-ai-apps FILES=docker-compose.ai-apps.yml
+	$(MAKE) deploy ACTION=pull PROJECT=cf-ai-tools FILES=docker-compose.ai-tools.yml
+	$(MAKE) deploy ACTION=pull PROJECT=cf-vectordbs FILES=docker-compose.vectordbs.yml
 
 .PHONY: down
 down: ## Stop core stack (use down-all for everything)
@@ -146,9 +221,11 @@ down-all: ## Stop ALL stacks (requires confirmation)
 	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = y ] || exit 1
 	$(MAKE) deploy ACTION=down PROJECT=cf-serena FILES=docker-compose.serena.yml
 	$(MAKE) deploy ACTION=down PROJECT=cf-ai-apps FILES=docker-compose.ai-apps.yml
+	$(MAKE) deploy ACTION=down PROJECT=cf-ai-tools FILES=docker-compose.ai-tools.yml
 	$(MAKE) deploy ACTION=down PROJECT=cf-openspace FILES=docker-compose.openspace.yml
 	$(MAKE) deploy ACTION=down PROJECT=cf-expand FILES=docker-compose.expand.yml
 	$(MAKE) deploy ACTION=down PROJECT=cf-openrag FILES=docker-compose.openrag.yml
+	$(MAKE) deploy ACTION=down PROJECT=cf-vectordbs FILES=docker-compose.vectordbs.yml
 	$(MAKE) deploy ACTION=down PROJECT=cf-core FILES=docker-compose.yml
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -212,6 +289,9 @@ health: ## Probe key service endpoints on cf0
 		"n8n:5679" \
 		"Qdrant:6333" \
 		"Serena:9121" \
+		"Chroma:8020/api/v2/heartbeat" \
+		"Weaviate:8090" \
+		"Milvus:9091/healthz" \
 	; do \
 		name=$${endpoint%%:*}; \
 		port_path=$${endpoint#*:}; \

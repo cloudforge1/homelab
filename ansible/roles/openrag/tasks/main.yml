@@ -22,15 +22,48 @@
     - { key: LANGFLOW_SUPERUSER_PASSWORD, value: "{{ langflow_superuser_password }}" }
     - { key: LANGFLOW_WORKERS, value: "{{ langflow_workers }}" }
     - { key: FRONTEND_PORT, value: "{{ frontend_port }}" }
+    - { key: HOMELAB_NETWORK_NAME, value: "{{ docker_network_name }}" }
+  tags: [openrag, config]
+
+- name: Ensure shared homelab network exists
+  community.docker.docker_network:
+    name: "{{ docker_network_name }}"
+    state: present
+  tags: [openrag, network]
+
+- name: Ensure Langflow data volume exists
+  community.docker.docker_volume:
+    name: cf-openrag_openrag-langflow-data
+    state: present
+  register: openrag_langflow_volume
+  tags: [openrag, storage]
+
+- name: Ensure Langflow data volume is writable by container user
+  ansible.builtin.file:
+    path: "{{ openrag_langflow_volume.volume.Mountpoint }}"
+    state: directory
+    owner: '1000'
+    group: root
+    mode: '0755'
+    recurse: true
+  tags: [openrag, storage]
+
+- name: Sync OpenRAG compose file to host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../compose/docker-compose.openrag.yml"
+    dest: "{{ compose_path }}/docker-compose.openrag.yml"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
   tags: [openrag, config]
 
 - name: Deploy OpenRAG stack
   community.docker.docker_compose_v2:
     project_src: "{{ compose_path }}"
+    project_name: cf-openrag
     files:
       - docker-compose.openrag.yml
     state: present
-    detached: true
     remove_orphans: true
   tags: [openrag, deploy]
 

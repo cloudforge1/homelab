@@ -60,7 +60,7 @@
     label: "{{ item.name }}"
   when:
     - host_runtime_conda.enabled | bool
-    - not host_runtime_env_stats.results[ansible_loop.index0].stat.exists
+    - not host_runtime_env_stats.results[host_runtime_enabled_env_names.index(item.name)].stat.exists
 
 - name: Ensure Python and pip are present in managed envs
   ansible.builtin.command:
@@ -75,6 +75,9 @@
   loop: "{{ host_runtime_enabled_envs }}"
   loop_control:
     label: "{{ item.name }}"
+  register: host_runtime_python_bootstrap
+  changed_when: >-
+    'All requested packages already installed.' not in (host_runtime_python_bootstrap.stdout | default(''))
   when: host_runtime_conda.enabled | bool
 
 - name: Upgrade pip in managed envs

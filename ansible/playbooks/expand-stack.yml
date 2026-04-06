@@ -40,7 +40,6 @@
         env_files:
           - "{{ env_file }}"
         state: present
-        detached: true
         remove_orphans: true
       tags: [deploy]
 
@@ -62,6 +61,7 @@
 
     - name: Display Expand stack health
       ansible.builtin.debug:
-        msg: "{{ item.item.name }}: {{ '✓' if item.status in [200, 301, 302, 401, 403] else '✗' }}"
+        msg: >-
+          {{ item.item.name }}: {{ 'skipped (check mode)' if (item.skipped | default(false)) else ('✓' if (item.status | default(0)) in [200, 301, 302, 401, 403] else '✗') }}
       loop: "{{ expand_health.results | default([]) }}"
       tags: [healthcheck]

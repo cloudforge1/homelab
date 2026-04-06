@@ -6,6 +6,8 @@
 # Hardware: i9-9900K (16 threads), 107GB RAM, GTX 1060 6GB
 # -------------------------------------------------------------------
 
+name: cf-core
+
 x-restart: &restart
   restart: unless-stopped
 
@@ -15,7 +17,8 @@ services:
     <<: *restart
     image: ollama/ollama:latest
     container_name: ollama
-    network_mode: host
+    ports:
+      - "0.0.0.0:11434:11434"
     deploy:
       resources:
         reservations:
@@ -32,36 +35,45 @@ services:
       OLLAMA_MAX_LOADED_MODELS: 3
       OLLAMA_FLASH_ATTENTION: 1
       OLLAMA_NUM_THREADS: 14
+    networks:
+      - default
+      - homelab-network
 
   # ── 1a. Ollama optional model sync — one-shot, env-controlled ─────
   ollama-model-sync:
     image: ollama/ollama:latest
-    network_mode: host
     depends_on:
       ollama:
         condition: service_started
     env_file:
       - ./ollama-models.env
     environment:
-      OLLAMA_HOST: http://127.0.0.1:11434
+      OLLAMA_HOST: http://ollama:11434
     volumes:
       - ./ollama-model-sync.sh:/opt/cf0/ollama-model-sync.sh:ro
     entrypoint: ["/bin/sh", "/opt/cf0/ollama-model-sync.sh"]
+    networks:
+      - default
+      - homelab-network
 
   # ── 2. Open WebUI — Chat interface ────────────────────────────────
   open-webui:
     <<: *restart
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
-    network_mode: host
+    ports:
+      - "0.0.0.0:8080:8080"
     depends_on:
       ollama:
         condition: service_started
     volumes:
       - open-webui-data:/app/backend/data
     environment:
-      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      OLLAMA_BASE_URL: http://ollama:11434
       WEBUI_AUTH: "false"
+    networks:
+      - default
+      - homelab-network
 
   # ── 3. SearXNG — Private search engine ────────────────────────────
   searxng:
@@ -140,3 +152,6 @@ volumes:
 networks:
   cognee-network:
     name: cognee-network
+  homelab-network:
+    external: true
+    name: ${HOMELAB_NETWORK_NAME:-homelab-network}

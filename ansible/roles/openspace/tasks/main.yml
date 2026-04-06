@@ -27,6 +27,9 @@
     - { key: OPENSPACE_CPU_LIMIT, value: "{{ openspace_cpu_limit }}" }
     - { key: OPENSPACE_MEMORY_LIMIT, value: "{{ openspace_memory_limit }}" }
     - { key: OPENSPACE_HOST_SKILL_DIRS, value: "{{ host_skill_dirs }}" }
+    - { key: OPENSPACE_MODEL, value: "{{ openspace_model }}" }
+    - { key: OPENSPACE_LLM_API_BASE, value: "{{ openspace_llm_api_base }}" }
+    - { key: HOMELAB_NETWORK_NAME, value: "{{ docker_network_name }}" }
   tags: [openspace, config]
 
 - name: Ensure OpenSpace compose build directory exists
@@ -51,6 +54,12 @@
     - src: "{{ playbook_dir }}/../../compose/openspace/Dockerfile"
       dest: "{{ compose_path }}/openspace/Dockerfile"
   tags: [openspace, config]
+
+- name: Ensure shared homelab network exists
+  community.docker.docker_network:
+    name: "{{ docker_network_name }}"
+    state: present
+  tags: [openspace, network]
 
 - name: Deploy OpenSpace container
   community.docker.docker_compose_v2:

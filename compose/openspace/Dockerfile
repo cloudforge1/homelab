@@ -37,6 +37,13 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir -e .
 
+# Patch mcp_server.py: FastMCP >=1.20 removed sse_params from run(),
+# port/host must be set on the settings object before calling run().
+# Also disable DNS rebinding protection so LAN clients can connect.
+RUN sed -i \
+    's/mcp\.run(transport="sse", sse_params={"port": args\.port})/mcp.settings.host = "0.0.0.0"; mcp.settings.port = args.port; mcp.settings.transport_security.enable_dns_rebinding_protection = False; mcp.run(transport="sse")/' \
+    /app/openspace/mcp_server.py
+
 COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
 
 RUN mkdir -p /app/.openspace /app/openspace/skills

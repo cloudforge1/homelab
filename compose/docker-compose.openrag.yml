@@ -4,6 +4,8 @@
 # Requires .env with OPENSEARCH_PASSWORD set.
 # -------------------------------------------------------------------
 
+name: cf-openrag
+
 services:
   # ── OpenSearch — Vector store ──────────────────────────────────────
   opensearch:
@@ -62,15 +64,16 @@ services:
       - LANGFLOW_DATABASE_URL=sqlite:////app/langflow-data/langflow.db
       - LANGFLOW_WORKERS=${LANGFLOW_WORKERS:-1}
       - LANGFLOW_LOG_LEVEL=INFO
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=http://ollama:11434
       - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD}
       - OPENSEARCH_HOST=${OPENSEARCH_HOST:-opensearch}
       - OPENSEARCH_PORT=${OPENSEARCH_PORT:-9200}
       - OPENSEARCH_URL=https://${OPENSEARCH_HOST:-opensearch}:${OPENSEARCH_PORT:-9200}
       - OPENSEARCH_INDEX_NAME=${OPENSEARCH_INDEX_NAME:-documents}
       - HIDE_GETTING_STARTED_PROGRESS=true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - homelab-network
 
   # ── OpenRAG Backend ────────────────────────────────────────────────
   openrag-backend:
@@ -95,13 +98,14 @@ services:
       - INGESTION_TIMEOUT=${INGESTION_TIMEOUT:-3600}
       - MAX_WORKERS=${MAX_WORKERS:-4}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - OLLAMA_ENDPOINT=http://host.docker.internal:11434
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - OLLAMA_ENDPOINT=http://ollama:11434
     volumes:
       - openrag-documents:/app/openrag-documents
       - openrag-flows:/app/flows
       - openrag-data:/app/data
+    networks:
+      - default
+      - homelab-network
 
   # ── OpenRAG Frontend ───────────────────────────────────────────────
   openrag-frontend:
@@ -122,3 +126,8 @@ volumes:
   openrag-langflow-data:
   openrag-documents:
   openrag-data:
+
+networks:
+  homelab-network:
+    external: true
+    name: ${HOMELAB_NETWORK_NAME:-homelab-network}

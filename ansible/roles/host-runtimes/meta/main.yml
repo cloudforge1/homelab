@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  role_name: host-runtimes
+  author: cloudforge
+  description: Host runtime provisioning — CUDA policy, Miniforge/Conda, Python environment matrix
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - cuda
+    - conda
+    - python
+    - gpu
+    - runtime
+
+dependencies: []

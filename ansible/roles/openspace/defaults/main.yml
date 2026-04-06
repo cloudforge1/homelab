@@ -6,4 +6,6 @@ openspace_mcp_port: 7789
 openspace_ref: 90b2ffab6ad7acdda006ba7ada6e62022a0531d6
 openspace_cpu_limit: "1.0"
 openspace_memory_limit: 500M
+openspace_model: "ollama/qwen3.5:27b"
+openspace_llm_api_base: "http://ollama:11434"
 host_skill_dirs: "{{ admin_home }}/ai-tools/fabro/skills"

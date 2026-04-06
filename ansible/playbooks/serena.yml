@@ -43,6 +43,22 @@
         - { key: SERENA_PROJECTS_HOST_ROOT, value: "{{ serena_projects_host_root }}" }
         - { key: SERENA_PROJECTS_CONTAINER_ROOT, value: "{{ serena_projects_container_root }}" }
         - { key: SERENA_CONFIG_HOST_ROOT, value: "{{ serena_config_host_root }}" }
+        - { key: HOMELAB_NETWORK_NAME, value: "{{ docker_network_name }}" }
+      tags: [config]
+
+    - name: Ensure shared homelab network exists
+      community.docker.docker_network:
+        name: "{{ docker_network_name }}"
+        state: present
+      tags: [network, deploy]
+
+    - name: Sync Serena compose file to host
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../compose/docker-compose.serena.yml"
+        dest: "{{ compose_path }}/docker-compose.serena.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
       tags: [config]
 
     - name: Update Serena source (if using main branch)
@@ -55,13 +71,13 @@
     - name: Deploy Serena container
       community.docker.docker_compose_v2:
         project_src: "{{ compose_path }}"
+        project_name: cf-serena
         files:
           - docker-compose.serena.yml
         env_files:
           - "{{ env_file }}"
         state: present
-        detached: true
-        build: false
+        build: never
       tags: [deploy]
 
     - name: Wait for Serena to be healthy
@@ -81,6 +97,6 @@
       ansible.builtin.debug:
         msg:
           - "Serena MCP is running"
-          - "Endpoint: http://127.0.0.1:{{ serena_port }}/mcp"
-          - "To connect: ssh -N -L {{ serena_port }}:127.0.0.1:{{ serena_port }} r@cf0"
+          - "Endpoint: http://cf0:{{ serena_port }}/mcp"
+          - "VS Code MCP config: { \"type\": \"http\", \"url\": \"http://cf0:{{ serena_port }}/mcp\" }"
       tags: [info]

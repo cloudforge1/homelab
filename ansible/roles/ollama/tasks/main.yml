@@ -7,16 +7,42 @@
     state: present
   tags: [ollama, volume]
 
+- name: Ensure shared homelab network exists
+  community.docker.docker_network:
+    name: "{{ docker_network_name }}"
+    state: present
+  tags: [ollama, network]
+
+- name: Ensure .env file has shared network name
+  ansible.builtin.lineinfile:
+    path: "{{ compose_path }}/.env"
+    regexp: "^HOMELAB_NETWORK_NAME="
+    line: "HOMELAB_NETWORK_NAME={{ docker_network_name }}"
+    create: true
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  tags: [ollama, config]
+
+- name: Sync core stack compose file to host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../compose/docker-compose.yml"
+    dest: "{{ compose_path }}/docker-compose.yml"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  tags: [ollama, config]
+
 - name: Deploy Ollama container
   community.docker.docker_compose_v2:
     project_src: "{{ compose_path }}"
+    project_name: cf-core
     files:
       - docker-compose.yml
     services:
       - ollama
       - ollama-model-sync
     state: present
-    detached: true
   tags: [ollama, deploy]
 
 - name: Wait for Ollama API to be ready

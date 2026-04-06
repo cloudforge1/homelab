@@ -4,9 +4,10 @@
     file: preflight.yml
     apply:
       tags:
+        - always
         - host-runtimes
         - preflight
-  tags: [host-runtimes, preflight]
+  tags: [always, host-runtimes, preflight]
 
 - name: Manage host CUDA policy
   ansible.builtin.include_tasks:

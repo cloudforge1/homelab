@@ -9,7 +9,6 @@
     services:
       - mindsdb
     state: present
-    detached: true
   tags: [mindsdb, deploy]
 
 - name: Wait for MindsDB API to be ready
