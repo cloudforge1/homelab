@@ -1,0 +1,29 @@
+---
+# Chroma
+chroma_version: latest
+chroma_port: 8020
+chroma_auth_token: ""
+chroma_auth_provider: ""
+chroma_auth_header: ""
+
+# Weaviate
+weaviate_version: "1.27.0"
+weaviate_port: 8090
+weaviate_grpc_port: 50051
+weaviate_query_limit: 25
+weaviate_anon_access: true
+weaviate_vectorizer: none
+weaviate_modules: "text2vec-openai,text2vec-cohere,text2vec-huggingface,generative-openai,generative-cohere,qna-openai,reranker-cohere"
+weaviate_apikey_enabled: false
+weaviate_apikeys: ""
+weaviate_apikey_users: ""
+weaviate_adminlist_enabled: false
+weaviate_admin_users: ""
+
+# Milvus
+milvus_version: v2.5.0
+milvus_port: 19530
+milvus_health_port: 9091
+minio_version: latest
+milvus_minio_access_key: minioadmin
+milvus_minio_secret_key: minioadmin

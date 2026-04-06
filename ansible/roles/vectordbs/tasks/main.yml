@@ -1,0 +1,84 @@
+---
+# Vector Databases role — Chroma, Weaviate, Milvus
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ compose_path }}"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0755'
+  tags: [config]
+
+- name: Deploy docker-compose.vectordbs.yml to remote host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../compose/docker-compose.vectordbs.yml"
+    dest: "{{ compose_path }}/docker-compose.vectordbs.yml"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  tags: [config]
+
+- name: Ensure vectordbs.env is templated
+  ansible.builtin.template:
+    src: vectordbs.env.j2
+    dest: "{{ compose_path }}/vectordbs.env"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_group }}"
+    mode: '0644'
+  tags: [config]
+
+- name: Deploy vectordbs stack via Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_path }}"
+    files:
+      - docker-compose.vectordbs.yml
+    env_files:
+      - "{{ compose_path }}/vectordbs.env"
+    state: present
+    remove_orphans: true
+  tags: [deploy]
+
+- name: Wait for Chroma to be healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ chroma_port }}/api/v2/heartbeat"
+    status_code: [200]
+    timeout: 5
+  register: chroma_health
+  retries: 5
+  delay: 10
+  until: chroma_health.status == 200
+  failed_when: false
+  tags: [healthcheck]
+
+- name: Wait for Weaviate to be healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ weaviate_port }}/v1/.well-known/ready"
+    status_code: [200]
+    timeout: 5
+  register: weaviate_health
+  retries: 5
+  delay: 10
+  until: weaviate_health.status == 200
+  failed_when: false
+  tags: [healthcheck]
+
+- name: Wait for Milvus to be healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ milvus_health_port }}/healthz"
+    status_code: [200]
+    timeout: 5
+  register: milvus_health
+  retries: 5
+  delay: 10
+  until: milvus_health.status == 200
+  failed_when: false
+  tags: [healthcheck]
+
+- name: Display vectordbs health summary
+  ansible.builtin.debug:
+    msg: >-
+      Chroma: {{ '✓' if (chroma_health.status | default(0)) == 200 else '✗' }} |
+      Weaviate: {{ '✓' if (weaviate_health.status | default(0)) == 200 else '✗' }} |
+      Milvus: {{ '✓' if (milvus_health.status | default(0)) == 200 else '✗' }}
+  tags: [healthcheck]

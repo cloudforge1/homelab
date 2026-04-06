@@ -1,0 +1,12 @@
+---
+# cf0 Vector Databases Playbook
+# Deploys: Chroma, Weaviate, Milvus (with etcd + MinIO)
+# Usage: ansible-playbook playbooks/vectordbs.yml
+
+- name: Deploy cf0 Vector Databases Stack
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  roles:
+    - vectordbs

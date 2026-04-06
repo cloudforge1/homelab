@@ -1,0 +1,147 @@
+# cf0 Vector Databases Stack — Chroma, Weaviate, Milvus
+# Usage: docker compose -f docker-compose.vectordbs.yml up -d
+# Status:  docker compose -f docker-compose.vectordbs.yml ps
+# -------------------------------------------------------------------
+
+name: cf-vectordbs
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Chroma — Lightweight embedding-aware vector DB ────────────────
+  # ═══════════════════════════════════════════════════════════════════
+  # Docs: https://docs.trychroma.com
+  # API:  http://cf0:8020/api/v1/heartbeat
+  chroma:
+    <<: *restart
+    image: chromadb/chroma:${CHROMA_VERSION:-latest}
+    container_name: chroma
+    ports:
+      - "0.0.0.0:8020:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      CHROMA_SERVER_AUTHN_CREDENTIALS: "${CHROMA_AUTH_TOKEN:-}"
+      CHROMA_SERVER_AUTHN_PROVIDER: "${CHROMA_AUTH_PROVIDER:-}"
+      CHROMA_AUTH_TOKEN_TRANSPORT_HEADER: "${CHROMA_AUTH_HEADER:-}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Weaviate — Multi-modal vector DB with built-in modules ────────
+  # ═══════════════════════════════════════════════════════════════════
+  # Docs: https://weaviate.io/developers/weaviate
+  # API:  http://cf0:8090/v1/.well-known/ready
+  weaviate:
+    <<: *restart
+    image: cr.weaviate.io/semitechnologies/weaviate:${WEAVIATE_VERSION:-1.27.0}
+    container_name: weaviate
+    ports:
+      - "0.0.0.0:8090:8080"
+      - "0.0.0.0:50051:50051"
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: ${WEAVIATE_QUERY_LIMIT:-25}
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "${WEAVIATE_ANON_ACCESS:-true}"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "${WEAVIATE_VECTORIZER:-none}"
+      ENABLE_MODULES: "${WEAVIATE_MODULES:-text2vec-openai,text2vec-cohere,text2vec-huggingface,generative-openai,generative-cohere,qna-openai,reranker-cohere}"
+      CLUSTER_HOSTNAME: "cf0-weaviate"
+      AUTHENTICATION_APIKEY_ENABLED: "${WEAVIATE_APIKEY_ENABLED:-false}"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: "${WEAVIATE_APIKEYS:-}"
+      AUTHENTICATION_APIKEY_USERS: "${WEAVIATE_APIKEY_USERS:-}"
+      AUTHORIZATION_ADMINLIST_ENABLED: "${WEAVIATE_ADMINLIST_ENABLED:-false}"
+      AUTHORIZATION_ADMINLIST_USERS: "${WEAVIATE_ADMIN_USERS:-}"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── Milvus — Cloud-native distributed vector DB (single-node) ─────
+  # ═══════════════════════════════════════════════════════════════════
+  # Docs: https://milvus.io/docs
+  # API:  http://cf0:19530/v1/vector/collections
+  # Note: Milvus runs in standalone mode (single-node) via etcd + MinIO.
+
+  # ── etcd — Metadata store for Milvus ──────────────────────────────
+  etcd:
+    <<: *restart
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: milvus-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - milvus-etcd-data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── MinIO — Object storage for Milvus ─────────────────────────────
+  minio:
+    <<: *restart
+    image: minio/minio:${MINIO_VERSION:-latest}
+    container_name: milvus-minio
+    command: minio server /minio_data --console-address ":9001"
+    volumes:
+      - milvus-minio-data:/minio_data
+    environment:
+      MINIO_ACCESS_KEY: "${MILVIO_MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MILVIO_MINIO_SECRET_KEY:-minioadmin}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Milvus Standalone ─────────────────────────────────────────────
+  milvus:
+    <<: *restart
+    image: milvusdb/milvus:${MILVUS_VERSION:-v2.5.0}
+    container_name: milvus
+    ports:
+      - "0.0.0.0:19530:19530"
+      - "0.0.0.0:9091:9091"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY: "${MILVIO_MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MILVIO_MINIO_SECRET_KEY:-minioadmin}"
+    command: ["milvus", "run", "standalone"]
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  chroma-data:
+  weaviate-data:
+  milvus-etcd-data:
+  milvus-minio-data:
+  milvus-data:
