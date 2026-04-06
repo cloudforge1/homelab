@@ -1,0 +1,328 @@
+---
+# AI Tools Stack Deployment Playbook
+# Deploys comprehensive AI/ML services by category from investigations.md
+# Categories: OCR, Speech, TTS, Audio, Translation, Image, Code,
+#             Gateway, Video, RAG, Email, Privacy, Memory
+#
+# Usage:
+#   ansible-playbook playbooks/ai-tools.yml              # Deploy all (respects enable_* flags)
+#   ansible-playbook playbooks/ai-tools.yml --tags ocr   # OCR only
+#   ansible-playbook playbooks/ai-tools.yml --check      # Dry run
+
+- name: Deploy AI Tools Stack
+  hosts: cf0
+  become: true
+  vars:
+    compose_file: docker-compose.ai-tools.yml
+    compose_project: cf-ai-tools
+    compose_dir: "{{ compose_path }}"
+
+  tasks:
+    # ── Pre-flight Checks ──────────────────────────────────────────────
+    - name: Check compose file exists
+      ansible.builtin.stat:
+        path: "{{ compose_dir }}/{{ compose_file }}"
+      register: compose_file_stat
+
+    - name: Fail if compose file missing
+      ansible.builtin.fail:
+        msg: "Compose file {{ compose_file }} not found in {{ compose_dir }}"
+      when: not compose_file_stat.stat.exists
+
+    - name: Ensure compose directory exists
+      ansible.builtin.file:
+        path: "{{ compose_dir }}"
+        state: directory
+        mode: "0755"
+
+    # ── Sync Compose File (always push latest) ────────────────────────
+    - name: Copy docker-compose.ai-tools.yml to cf0
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../compose/{{ compose_file }}"
+        dest: "{{ compose_path }}/{{ compose_file }}"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: "0644"
+
+    # ── Sync Environment File (always push latest) ────────────────────
+    - name: Copy ai-tools.env to cf0
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../compose/ai-tools.env"
+        dest: "{{ compose_path }}/ai-tools.env"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: "0644"
+
+    # ── Determine Enabled Profiles (3-state: running/stopped/disabled) ─
+    # running  → deploy + start (consumes RAM, binds port)
+    # stopped  → pull image + create container, keep stopped (0 RAM, 0 CPU)
+    # disabled → not deployed at all
+
+    - name: Build running profiles list
+      ansible.builtin.set_fact:
+        running_profiles: >-
+          {{
+            (['ocr'] if (enable_glm_ocr == 'running' or enable_paddle_ocr == 'running' or enable_marker == 'running') else [])
+            + (['speech'] if (enable_faster_whisper == 'running' or enable_whisper_x == 'running' or enable_funasr == 'running') else [])
+            + (['tts'] if (enable_piper == 'running' or enable_kokoro_fastapi == 'running' or enable_paddle_speech == 'running') else [])
+            + (['audio'] if (enable_demucs == 'running' or enable_uvr5 == 'running' or enable_audiosep == 'running') else [])
+            + (['translation'] if (enable_pdf_math_translate == 'running' or enable_libre_translate == 'running' or enable_argos_translate == 'running') else [])
+            + (['image-gen'] if (enable_comfyui == 'running' or enable_fooocus == 'running' or enable_swarmui == 'running') else [])
+            + (['image-enhance'] if (enable_real_esrgan == 'running' or enable_gfpgan == 'running' or enable_clarity_upscaler == 'running') else [])
+            + (['code'] if (enable_aider == 'running' or enable_tabby == 'running') else [])
+            + (['gateway'] if (enable_litellm == 'running' or enable_langfuse == 'running' or enable_infinity == 'running') else [])
+            + (['video'] if (enable_cobalt == 'running' or enable_metube == 'running' or enable_reclip == 'running') else [])
+            + (['rag'] if (enable_privategpt == 'running' or enable_anythingllm == 'running' or enable_paperqa2 == 'running') else [])
+            + (['email'] if (enable_anonaddy == 'running' or enable_simplelogin == 'running' or enable_mailu == 'running') else [])
+            + (['privacy'] if (enable_presidio == 'running' or enable_secret_scanner == 'running' or enable_pii_detector == 'running') else [])
+            + (['memory'] if (enable_mem0 == 'running' or enable_letta == 'running') else [])
+            + (['nsfw'] if (enable_fusion == 'running' or enable_rope == 'running' or enable_rvc == 'running' or enable_applio == 'running' or enable_bark == 'running' or enable_kohya == 'running' or enable_animatediff == 'running' or enable_deepfacelive == 'running' or enable_roop_discontinued == 'running' or enable_moore_animateanyone == 'running' or enable_magicanimate == 'running' or enable_ai_toolkit == 'running' or enable_stability_matrix == 'running') else [])
+            + (['also-notable'] if (enable_surya == 'running' or enable_docling == 'running' or enable_nougat == 'running' or enable_whisper_cpp == 'running' or enable_speechbrain == 'running' or enable_coqui_tts == 'running' or enable_edge_tts == 'running' or enable_spleeter == 'running' or enable_invokeai == 'running' or enable_codeformer == 'running' or enable_swinir == 'running' or enable_sglang == 'running' or enable_tensorrt_llm == 'running' or enable_smarter_router == 'running' or enable_yt_dlp_web_ui == 'running' or enable_stalwart == 'running' or enable_postal == 'running' or enable_opensanctions == 'running' or enable_gophish == 'running' or enable_recallium == 'running' or enable_zenii == 'running' or enable_auto1111 == 'running' or enable_tubearchivist == 'running' or enable_dify == 'running' or enable_bloop == 'running') else [])
+          }}
+
+    - name: Build stopped profiles list
+      ansible.builtin.set_fact:
+        stopped_profiles: >-
+          {{
+            (['ocr'] if (enable_glm_ocr == 'stopped' or enable_paddle_ocr == 'stopped' or enable_marker == 'stopped') else [])
+            + (['speech'] if (enable_faster_whisper == 'stopped' or enable_whisper_x == 'stopped' or enable_funasr == 'stopped') else [])
+            + (['tts'] if (enable_piper == 'stopped' or enable_kokoro_fastapi == 'stopped' or enable_paddle_speech == 'stopped') else [])
+            + (['audio'] if (enable_demucs == 'stopped' or enable_uvr5 == 'stopped' or enable_audiosep == 'stopped') else [])
+            + (['translation'] if (enable_pdf_math_translate == 'stopped' or enable_libre_translate == 'stopped' or enable_argos_translate == 'stopped') else [])
+            + (['image-gen'] if (enable_comfyui == 'stopped' or enable_fooocus == 'stopped' or enable_swarmui == 'stopped') else [])
+            + (['image-enhance'] if (enable_real_esrgan == 'stopped' or enable_gfpgan == 'stopped' or enable_clarity_upscaler == 'stopped') else [])
+            + (['code'] if (enable_aider == 'stopped' or enable_tabby == 'stopped') else [])
+            + (['gateway'] if (enable_litellm == 'stopped' or enable_langfuse == 'stopped' or enable_infinity == 'stopped') else [])
+            + (['video'] if (enable_cobalt == 'stopped' or enable_metube == 'stopped' or enable_reclip == 'stopped') else [])
+            + (['rag'] if (enable_privategpt == 'stopped' or enable_anythingllm == 'stopped' or enable_paperqa2 == 'stopped') else [])
+            + (['email'] if (enable_anonaddy == 'stopped' or enable_simplelogin == 'stopped' or enable_mailu == 'stopped') else [])
+            + (['privacy'] if (enable_presidio == 'stopped' or enable_secret_scanner == 'stopped' or enable_pii_detector == 'stopped') else [])
+            + (['memory'] if (enable_mem0 == 'stopped' or enable_letta == 'stopped') else [])
+            + (['nsfw'] if (enable_fusion == 'stopped' or enable_rope == 'stopped' or enable_rvc == 'stopped' or enable_applio == 'stopped' or enable_bark == 'stopped' or enable_kohya == 'stopped' or enable_animatediff == 'stopped' or enable_deepfacelive == 'stopped' or enable_roop_discontinued == 'stopped' or enable_moore_animateanyone == 'stopped' or enable_magicanimate == 'stopped' or enable_ai_toolkit == 'stopped' or enable_stability_matrix == 'stopped') else [])
+            + (['also-notable'] if (enable_surya == 'stopped' or enable_docling == 'stopped' or enable_nougat == 'stopped' or enable_whisper_cpp == 'stopped' or enable_speechbrain == 'stopped' or enable_coqui_tts == 'stopped' or enable_edge_tts == 'stopped' or enable_spleeter == 'stopped' or enable_invokeai == 'stopped' or enable_codeformer == 'stopped' or enable_swinir == 'stopped' or enable_sglang == 'stopped' or enable_tensorrt_llm == 'stopped' or enable_smarter_router == 'stopped' or enable_yt_dlp_web_ui == 'stopped' or enable_stalwart == 'stopped' or enable_postal == 'stopped' or enable_opensanctions == 'stopped' or enable_gophish == 'stopped' or enable_recallium == 'stopped' or enable_zenii == 'stopped' or enable_auto1111 == 'stopped' or enable_tubearchivist == 'stopped' or enable_dify == 'stopped' or enable_bloop == 'stopped') else [])
+          }}
+
+    - name: Display deployment plan
+      ansible.builtin.debug:
+        msg: |
+          ┌─ AI Tools Deployment Plan ──────────────────────────────┐
+          │ Running (RAM + port): {{ running_profiles | default(['none']) | join(', ') | truncate(50) }}
+          │ Stopped (disk only):  {{ stopped_profiles | default(['none']) | join(', ') | truncate(50) }}
+          │ Disabled:             everything else
+          └─────────────────────────────────────────────────────────┘
+
+    # ── Deploy Compose Stack ──────────────────────────────────────────
+
+    # Phase 1: Deploy running profiles (pull + start)
+    - name: Deploy running profiles
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - "{{ compose_file }}"
+        env_files:
+          - "{{ compose_path }}/ai-tools.env"
+        pull: always
+        profiles: "{{ running_profiles }}"
+        state: present
+        remove_orphans: false
+      when: running_profiles | length > 0
+      register: running_result
+
+    # Phase 2: Pull + create stopped profiles (no start)
+    - name: Create stopped profiles (pull + create, don't start)
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_path }}"
+        files:
+          - "{{ compose_file }}"
+        env_files:
+          - "{{ compose_path }}/ai-tools.env"
+        pull: always
+        profiles: "{{ stopped_profiles }}"
+        state: present
+        stopped: true
+        remove_orphans: false
+      when: stopped_profiles | length > 0
+      register: stopped_result
+
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ┌─ AI Tools Deployment Summary ───────────────────────────┐
+          │ Running:  {{ running_profiles | default([]) | length }} categories → RAM + ports active
+          │ Stopped:  {{ stopped_profiles | default([]) | length }} categories → images on disk, 0 RAM
+          │ Disabled: untouched (use `cf down ai-tools` to clean)
+          └─────────────────────────────────────────────────────────┘
+
+    # ── Deploy Conda Environments (Python library tools) ──────────────
+    # These are host-native Python envs, NOT Docker services.
+    # "running" or "stopped" = install the env; "disabled" = skip.
+    # Conda envs are always "stopped" (no daemon) — used via hr-* wrappers.
+
+    - name: Build conda envs to install
+      ansible.builtin.set_fact:
+        conda_envs_to_install: >-
+          {{
+            (['py310ai-libs'] if (enable_conda_ai_libs == 'stopped' or enable_conda_ai_libs == 'running') else [])
+            + (['py310airllm'] if (enable_conda_airllm == 'stopped' or enable_conda_airllm == 'running') else [])
+            + (['py310heretic'] if (enable_conda_heretic == 'stopped' or enable_conda_heretic == 'running') else [])
+            + (['py310mergekit'] if (enable_conda_mergekit == 'stopped' or enable_conda_mergekit == 'running') else [])
+            + (['py310exllama'] if (enable_conda_exllama == 'stopped' or enable_conda_exllama == 'running') else [])
+            + (['py310abliteration'] if (enable_conda_abliteration == 'stopped' or enable_conda_abliteration == 'running') else [])
+          }}
+
+    - name: Deploy conda envs via host-runtimes role
+      ansible.builtin.include_role:
+        name: host-runtimes
+      vars:
+        host_runtime_python_env_matrix:
+          default_python: "3.10"
+          envs:
+            - name: py310ai-libs
+              enabled: "{{ enable_conda_ai_libs == 'stopped' or enable_conda_ai_libs == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: ai-libs
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - torchvision==0.16.1
+                - torchaudio==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - bitsandbytes>=0.43.0
+                - safetensors>=0.4.0
+                - peft>=0.11.0
+                - optuna>=3.6.0
+                - scipy>=1.11.0
+                - numpy>=1.24.0
+                - huggingface-hub>=0.23.0
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "import torch, transformers, bitsandbytes; print('AI libs ready')"
+            - name: py310airllm
+              enabled: "{{ enable_conda_airllm == 'stopped' or enable_conda_airllm == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: airllm
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - safetensors>=0.4.0
+                - bitsandbytes>=0.43.0
+                - airllm>=2.12.0
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "from airllm import AirLLM; print('AirLLM ready')"
+            - name: py310heretic
+              enabled: "{{ enable_conda_heretic == 'stopped' or enable_conda_heretic == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: heretic
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - bitsandbytes>=0.43.0
+                - optuna>=3.6.0
+                - safetensors>=0.4.0
+                - peft>=0.11.0
+                - heretic>=1.0.0
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "import heretic; print('Heretic ready')"
+            - name: py310mergekit
+              enabled: "{{ enable_conda_mergekit == 'stopped' or enable_conda_mergekit == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: mergekit
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - safetensors>=0.4.0
+                - mergekit>=0.0.5
+                - tqdm
+                - numpy
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "import mergekit; print('mergekit ready')"
+            - name: py310exllama
+              enabled: "{{ enable_conda_exllama == 'stopped' or enable_conda_exllama == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: exllamav2
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - safetensors>=0.4.0
+                - exllamav2>=0.2.0
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "import exllamav2; print('exllamav2 ready')"
+            - name: py310abliteration
+              enabled: "{{ enable_conda_abliteration == 'stopped' or enable_conda_abliteration == 'running' }}"
+              supported: true
+              python: "3.10"
+              framework: abliteration
+              accelerator: cpu
+              install_method: pip
+              pip_packages:
+                - torch==2.1.1
+                - transformers>=4.40.0
+                - accelerate>=0.30.0
+                - bitsandbytes>=0.43.0
+                - safetensors>=0.4.0
+                - abliteration>=1.0.0
+              extra_index_urls:
+                - https://download.pytorch.org/whl/cpu
+              validation:
+                - python --version
+                - python -c "import abliteration; print('abliteration ready')"
+      when: conda_envs_to_install | length > 0
+
+    - name: Display conda env deployment summary
+      ansible.builtin.debug:
+        msg: |
+          Conda envs to install: {{ conda_envs_to_install | default([]) | join(', ') | default('none') }}
+          Use wrappers after install: hr-py310ai-libs, hr-py310airllm, hr-py310heretic, hr-py310mergekit, hr-py310exllama, hr-py310abliteration
+
+  # ── Category Tags ────────────────────────────────────────────────
+  tags:
+    - ai-tools
+    - ocr
+    - speech
+    - tts
+    - audio
+    - translation
+    - image-gen
+    - image-enhance
+    - code
+    - gateway
+    - video
+    - rag
+    - email
+    - privacy
+    - memory
+    - nsfw
+    - also-notable

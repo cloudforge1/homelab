@@ -1,0 +1,1795 @@
+# cf0 AI Tools Stack — Comprehensive AI/ML Services by Category
+# Categories: OCR, Speech, TTS, Audio, Translation, Image, Code,
+#             Gateway, Video, RAG, Email, Privacy, Memory
+#
+# All services disabled by default — enable via profiles or env vars
+#
+# Usage:
+#   docker compose -f docker-compose.ai-tools.yml --profile ocr up -d
+#   docker compose -f docker-compose.ai-tools.yml --profile speech up -d
+#   docker compose -f docker-compose.ai-tools.yml --profile all up -d
+#   docker compose -f docker-compose.ai-tools.yml up -d  # no profiles = nothing starts
+#
+# Hardware: i9-9900K (16 threads), 107GB RAM, GTX 1060 6GB (Pascal SM 6.1)
+# -------------------------------------------------------------------
+
+name: cf-ai-tools
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-cpu-only: &cpu-only
+  deploy:
+    resources:
+      limits:
+        memory: 4G
+
+x-gpu-reserved: &gpu-reserved
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+      limits:
+        memory: 6G
+
+services:
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 1. Document OCR & Understanding ──────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── GLM-OCR — 0.9B multimodal OCR (text, formulas, tables) ────────
+  # NOTE: Requires vLLM or SGLang backend. CPU-only mode supported.
+  glm-ocr:
+    <<: *cpu-only
+    image: vllm/vllm-openai:nightly
+    container_name: glm-ocr
+    profiles:
+      - ocr
+      - all
+    ports:
+      - "${GLM_OCR_PORT:-5520}:8000"
+    environment:
+      - MODEL=THUDM/glm-ocr
+      - VLLM_TARGET_DEVICE=cpu
+      - MAX_MODEL_LEN=4096
+    volumes:
+      - glm-ocr-data:/root/.cache
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  # ── PaddleOCR-VL — Industry-standard OCR (100+ languages) ────────
+  # NOTE: Leverages existing PaddlePaddle 3.0.0 Conda env on host
+  paddle-ocr:
+    <<: *cpu-only
+    image: paddlepaddle/paddle:3.0.0
+    container_name: paddle-ocr
+    profiles:
+      - ocr
+      - all
+    ports:
+      - "${PADDLE_OCR_PORT:-5510}:5510"
+    command: >
+      bash -c "pip install paddleocr && 
+               python -c \"from paddleocr import PaddleOCR; ocr=PaddleOCR(use_angle_cls=True, lang='en'); print('PaddleOCR ready')\" &&
+               python -m uvicorn paddleocr_server:app --host 0.0.0.0 --port 5510"
+    volumes:
+      - paddle-ocr-data:/root/.paddleocr
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Marker — PDF → Markdown (high accuracy, no GPU needed) ───────
+  # NOTE: No official Docker image exists. Build locally or run as CLI:
+  #       pip install marker-pdf && marker /path/to/pdf --output_dir /output
+  # marker:
+  #   <<: *cpu-only
+  #   image: ghcr.io/vikparuchuri/marker:latest
+  #   container_name: marker
+  #   profiles:
+  #     - ocr
+  #     - all
+  #   ports:
+  #     - "${MARKER_PORT:-5511}:8000"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 2. Speech-to-Text (Transcription) ────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Faster-Whisper — CTranslate2-optimized Whisper (4x faster) ────
+  faster-whisper:
+    <<: *cpu-only
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: faster-whisper
+    profiles:
+      - speech
+      - all
+    ports:
+      - "${FASTER_WHISPER_PORT:-5501}:8000"
+    environment:
+      - MODEL=Systran/faster-whisper-small
+      - CUDA_ALLOWED=false
+    volumes:
+      - faster-whisper-data:/root/.cache
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── WhisperX — Whisper + word-level timestamps + diarization ──────
+  whisper-x:
+    <<: *cpu-only
+    image: r8.im/victor-upare/whisperx:latest
+    container_name: whisper-x
+    profiles:
+      - speech
+      - all
+    ports:
+      - "${WHISPER_X_PORT:-5502}:8000"
+    volumes:
+      - whisper-x-data:/root/.cache
+      - whisper-x-input:/input:ro
+      - whisper-x-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  # ── FunASR (Alibaba) — Production ASR (Chinese-optimized) ────────
+  funasr:
+    <<: *cpu-only
+    image: registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:latest
+    container_name: funasr
+    profiles:
+      - speech
+      - all
+    ports:
+      - "${FUNASR_PORT:-5503}:10095"
+    volumes:
+      - funasr-data:/root/.cache
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 3. Text-to-Speech (TTS) ──────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Piper — Fast local neural TTS (900+ voices, CPU-only) ────────
+  piper:
+    <<: *cpu-only
+    image: rhasspy/piper:latest
+    container_name: piper
+    profiles:
+      - tts
+      - all
+    ports:
+      - "${PIPER_PORT:-5500}:5500"
+    command: --http 0.0.0.0:5500
+    volumes:
+      - piper-voices:/usr/local/lib/piper/voices
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Kokoro-FastAPI — High-quality TTS (OpenAI-compatible API) ────
+  # NOTE: Build locally — no official CPU image on GHCR yet
+  kokoro-fastapi:
+    <<: *cpu-only
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-fastapi
+    profiles:
+      - tts
+      - all
+    ports:
+      - "${KOKORO_FASTAPI_PORT:-5504}:8880"
+    volumes:
+      - kokoro-data:/app/voices
+    environment:
+      - PORT=8880
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── PaddleSpeech (Baidu) — All-in-one speech (TTS + ASR) ─────────
+  paddle-speech:
+    <<: *cpu-only
+    image: paddlepaddle/paddle:3.0.0
+    container_name: paddle-speech
+    profiles:
+      - tts
+      - all
+    ports:
+      - "${PADDLE_SPEECH_PORT:-5505}:8090"
+    command: >
+      bash -c "pip install paddlespeech &&
+               paddlespeech_server start --config_file /app/conf/application.yaml"
+    volumes:
+      - paddle-speech-data:/root/.paddlespeech
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 4. Audio Separation & Processing ─────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Demucs (Meta) — Music source separation (vocals, drums, bass) ─
+  demucs:
+    <<: *cpu-only
+    image: ghcr.io/adefossez/demucs:latest
+    container_name: demucs
+    profiles:
+      - audio
+      - all
+    volumes:
+      - demucs-input:/input:ro
+      - demucs-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── UVR5 — Ultimate Vocal Remover (GUI, 20+ models) ──────────────
+  uvr5:
+    <<: *cpu-only
+    image: ghcr.io/nabla-audio/uvr5:latest
+    container_name: uvr5
+    profiles:
+      - audio
+      - all
+    ports:
+      - "${UVR5_PORT:-5507}:7860"
+    volumes:
+      - uvr5-input:/input:ro
+      - uvr5-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  # ── AudioSep — Separate audio by text description ────────────────
+  audiosep:
+    <<: *cpu-only
+    image: modelscope/audiotype:latest
+    container_name: audiosep
+    profiles:
+      - audio
+      - all
+    ports:
+      - "${AUDIOSEP_PORT:-5508}:7860"
+    volumes:
+      - audiosep-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 5. Translation ───────────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── PDFMathTranslate — PDF scientific paper translation ──────────
+  pdf-math-translate:
+    <<: *cpu-only
+    image: byaidu/pdf2zh:latest
+    container_name: pdf-math-translate
+    profiles:
+      - translation
+      - all
+    ports:
+      - "${PDF_MATH_TRANSLATE_PORT:-5509}:7860"
+    volumes:
+      - pdf-translate-input:/input:ro
+      - pdf-translate-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── LibreTranslate — Self-hosted machine translation API ──────────
+  libre-translate:
+    <<: *cpu-only
+    image: libretranslate/libretranslate:latest
+    container_name: libre-translate
+    profiles:
+      - translation
+      - all
+    ports:
+      - "${LIBRE_TRANSLATE_PORT:-5512}:5000"
+    environment:
+      - LT_API_KEYS=true
+      - LT_UPDATE_MODELS=true
+    volumes:
+      - libre-translate-data:/home/libretranslate/.local
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Argos Translate — Offline neural translation ──────────────────
+  argos-translate:
+    <<: *cpu-only
+    image: argosopentech/argos-translate:latest
+    container_name: argos-translate
+    profiles:
+      - translation
+      - all
+    ports:
+      - "${ARGOS_TRANSLATE_PORT:-5513}:5000"
+    volumes:
+      - argos-data:/root/.local
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 6. Image Generation ──────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── ComfyUI — Node-based Stable Diffusion backend ────────────────
+  # NOTE: GTX 1060 can run SD1.5/SDXL with reduced batch size
+  comfyui:
+    <<: *gpu-reserved
+    image: ghcr.io/ai-dock/comfyui:latest
+    container_name: comfyui
+    profiles:
+      - image-gen
+      - all
+    ports:
+      - "${COMFYUI_PORT:-7861}:8188"
+    volumes:
+      - comfyui-data:/root/comfyui
+      - comfyui-models:/models
+    environment:
+      - WEB_ENABLE_AUTH=false
+      - AUTO_UPDATE=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Fooocus — SDXL with Midjourney-like UX ───────────────────────
+  fooocus:
+    <<: *gpu-reserved
+    image: ghcr.io/ezioruan/fooocus:latest
+    container_name: fooocus
+    profiles:
+      - image-gen
+      - all
+    ports:
+      - "${FOOOCUS_PORT:-7862}:7865"
+    volumes:
+      - fooocus-data:/root/.fooocus
+      - fooocus-models:/models
+    environment:
+      - CLI_ARGS=--listen --port 7865
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── SwarmUI — Multi-backend image gen over ComfyUI ───────────────
+  swarmui:
+    <<: *gpu-reserved
+    image: ghcr.io/mcmonkeyprojects/swarmui:latest
+    container_name: swarmui
+    profiles:
+      - image-gen
+      - all
+    ports:
+      - "${SWARMUI_PORT:-7863}:7801"
+    volumes:
+      - swarmui-data:/app/Data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 7. Image Enhancement & Restoration ───────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Real-ESRGAN — General-purpose 4x upscaler ────────────────────
+  real-esrgan:
+    <<: *cpu-only
+    image: ghcr.io/anicolson/real-esrgan:latest
+    container_name: real-esrgan
+    profiles:
+      - image-enhance
+      - all
+    volumes:
+      - esrgan-input:/input:ro
+      - esrgan-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── GFPGAN (Tencent) — Face restoration ──────────────────────────
+  gfpgan:
+    <<: *cpu-only
+    image: ghcr.io/anthonyick/ gfpgan:latest
+    container_name: gfpgan
+    profiles:
+      - image-enhance
+      - all
+    volumes:
+      - gfpgan-input:/input:ro
+      - gfpgan-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Clarity Upscaler — Open-source Magnific alternative ──────────
+  clarity-upscaler:
+    <<: *cpu-only
+    image: ghcr.io/janvarev/chainimg:latest
+    container_name: clarity-upscaler
+    profiles:
+      - image-enhance
+      - all
+    ports:
+      - "${CLARITY_UPSCALER_PORT:-5516}:7860"
+    volumes:
+      - clarity-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 8. AI Code Assistant ─────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Aider — AI pair programming in terminal ──────────────────────
+  # NOTE: Runs as CLI tool — connect to Ollama backend
+  aider:
+    <<: *cpu-only
+    image: paulgauthier/aider:latest
+    container_name: aider
+    profiles:
+      - code
+      - all
+    ports:
+      - "${AIDER_PORT:-5517}:8000"
+    environment:
+      - OPENAI_API_BASE=http://host.docker.internal:11434/v1
+      - OPENAI_API_KEY=ollama
+    volumes:
+      - /home/r:/workspace
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Tabby — Self-hosted GitHub Copilot alternative ───────────────
+  # NOTE: Requires 8GB+ VRAM ideally — may be slow on GTX 1060
+  tabby:
+    <<: *cpu-only
+    image: tabbyml/tabby:latest
+    container_name: tabby
+    profiles:
+      - code
+      - all
+    ports:
+      - "${TABBY_PORT:-5518}:8080"
+    volumes:
+      - tabby-data:/data
+    environment:
+      - TABBY_MODEL_CACHE_ROOT=/data/models
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  # ── Continue — Open-source AI coding assistant ───────────────────
+  # NOTE: VSCode/JetBrains extension — connects to Ollama backend
+  #       No standalone server — runs as IDE extension
+  #       Documented here for reference; no Docker deployment needed
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 9. LLM Gateway & Routing ─────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── LiteLLM — Universal LLM proxy (100+ providers) ───────────────
+  litellm:
+    <<: *cpu-only
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    profiles:
+      - gateway
+      - all
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    environment:
+      - DATABASE_URL=postgresql://tools:tools_dev_2025@postgres-tools:5432/tools_db
+    depends_on:
+      - postgres-tools
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Langfuse — LLM observability & tracing ───────────────────────
+  langfuse:
+    <<: *cpu-only
+    image: langfuse/langfuse:latest
+    container_name: langfuse
+    profiles:
+      - gateway
+      - all
+    ports:
+      - "${LANGFUSE_PORT:-5519}:3000"
+    environment:
+      - DATABASE_URL=postgresql://tools:tools_dev_2025@postgres-tools:5432/tools_db
+      - NEXTAUTH_SECRET=langfuse_secret_key_change_me
+      - SALT=langfuse_salt_change_me
+    depends_on:
+      - postgres-tools
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Infinity — Embedding + reranker server (OpenAI-compatible) ───
+  infinity:
+    <<: *cpu-only
+    image: michaelf34/infinity:latest
+    container_name: infinity
+    profiles:
+      - gateway
+      - all
+    ports:
+      - "${INFINITY_PORT:-7997}:7997"
+    environment:
+      - INFINITY_MODEL_ID=BAAI/bge-small-en-v1.5
+    volumes:
+      - infinity-data:/app/.cache
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 10. Video Download & Processing ──────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Cobalt — Clean download UI (1,000+ platforms) ───────────────
+  cobalt:
+    <<: *cpu-only
+    image: ghcr.io/imputnet/cobalt:latest
+    container_name: cobalt
+    profiles:
+      - video
+      - all
+    ports:
+      - "${COBALT_PORT:-5521}:9000"
+    environment:
+      - API_URL=http://localhost:9000
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── MeTube — yt-dlp web UI with queue & playlists ────────────────
+  metube:
+    <<: *cpu-only
+    image: ghcr.io/alexta69/metube:latest
+    container_name: metube
+    profiles:
+      - video
+      - all
+    ports:
+      - "${METUBE_PORT:-5522}:8081"
+    volumes:
+      - metube-downloads:/downloads
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Reclip — Minimal yt-dlp Flask UI (~150 lines) ────────────────
+  reclip:
+    <<: *cpu-only
+    image: python:3.11-slim
+    container_name: reclip
+    profiles:
+      - video
+      - all
+    ports:
+      - "${RECLIP_PORT:-8899}:8899"
+    volumes:
+      - reclip-downloads:/downloads
+      - ./scripts/reclip-start.sh:/start.sh:ro
+    command: ["sh", "/start.sh"]
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 11. RAG & Document Chat ──────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── PrivateGPT — Chat with documents offline ─────────────────────
+  privategpt:
+    <<: *cpu-only
+    image: imartinez/privategpt:latest
+    container_name: privategpt
+    profiles:
+      - rag
+      - all
+    ports:
+      - "${PRIVATEGPT_PORT:-5523}:8001"
+    volumes:
+      - privategpt-data:/app/data
+      - privategpt-models:/app/models
+    environment:
+      - PGPT_MODE=local
+      - PGPT_EMBEDDING_HF_MODEL_NAME=BAAI/bge-small-en-v1.5
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  # ── AnythingLLM — All-in-one document chat with RAG ──────────────
+  anythingllm:
+    <<: *cpu-only
+    image: mintplexlabs/anythingllm:latest
+    container_name: anythingllm
+    profiles:
+      - rag
+      - all
+    ports:
+      - "${ANYTHINGLLM_PORT:-3001}:3001"
+    volumes:
+      - anythingllm-storage:/app/server/storage
+      - anythingllm-env:/app/.env
+    environment:
+      - STORAGE_DIR=/app/server/storage
+    cap_add:
+      - SYS_ADMIN
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── PaperQA2 — High-accuracy RAG on PDFs/research papers ─────────
+  paperqa2:
+    <<: *cpu-only
+    image: futurehouse/paper-qa:latest
+    container_name: paperqa2
+    profiles:
+      - rag
+      - all
+    ports:
+      - "${PAPERQA2_PORT:-5524}:8000"
+    volumes:
+      - paperqa2-data:/app/data
+    environment:
+      - OPENAI_API_BASE=http://host.docker.internal:11434/v1
+      - OPENAI_API_KEY=ollama
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 12. Email Privacy ────────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── AnonAddy — Anonymous email forwarding ────────────────────────
+  # NOTE: Requires port 25 unblocked + DNS/MX/SSL configuration
+  anonaddy:
+    <<: *cpu-only
+    image: anonaddy/docker:latest
+    container_name: anonaddy
+    profiles:
+      - email
+      - all
+    ports:
+      - "${ANONADDY_PORT:-80}:80"
+    volumes:
+      - anonaddy-data:/data
+      - anonaddy-config:/config
+    environment:
+      - APP_KEY=base64:changeme_generate_with_php_artisan_key_generate
+      - DB_HOST=postgres-tools
+      - DB_DATABASE=anonaddy_db
+      - DB_USERNAME=tools
+      - DB_PASSWORD=tools_dev_2025
+    depends_on:
+      - postgres-tools
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── SimpleLogin — Email alias service ────────────────────────────
+  simplelogin:
+    <<: *cpu-only
+    image: simplelogin/app:latest
+    container_name: simplelogin
+    profiles:
+      - email
+      - all
+    ports:
+      - "${SIMPLELOGIN_PORT:-5525}:7700"
+    volumes:
+      - simplelogin-data:/data
+      - simplelogin-config:/etc/simplelogin
+    environment:
+      - CONFIG=/etc/simplelogin/config.ini
+    depends_on:
+      - postgres-tools
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Mailu — Full self-hosted mail server ─────────────────────────
+  # NOTE: Requires DNS/MX/SSL + port 25 setup
+  mailu:
+    <<: *cpu-only
+    image: mailu/nginx:latest
+    container_name: mailu
+    profiles:
+      - email
+      - all
+    ports:
+      - "${MAILU_HTTP_PORT:-5526}:80"
+      - "${MAILU_SMTP_PORT:-25}:25"
+    volumes:
+      - mailu-data:/data
+      - mailu-config:/mailu
+    environment:
+      - DOMAIN=mail.cf0.local
+      - HOSTNAMES=mail.cf0.local
+      - SECRET_KEY=change_me_to_a_random_key
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 13. Privacy & Anonymization ──────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Microsoft Presidio — PII/anonymization engine ────────────────
+  presidio:
+    <<: *cpu-only
+    image: mcr.microsoft.com/presidio-analyzer:latest
+    container_name: presidio
+    profiles:
+      - privacy
+      - all
+    ports:
+      - "${PRESIDIO_PORT:-5527}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── SecretScanner — Scan for secrets/credentials ─────────────────
+  secret-scanner:
+    <<: *cpu-only
+    image: deepfenceio/deepfence_secretscanner:latest
+    container_name: secret-scanner
+    profiles:
+      - privacy
+      - all
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - secret-scanner-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── PII Detector — AI-powered PII detection ──────────────────────
+  pii-detector:
+    <<: *cpu-only
+    image: ghcr.io/elementary-data/pii-detector:latest
+    container_name: pii-detector
+    profiles:
+      - privacy
+      - all
+    ports:
+      - "${PII_DETECTOR_PORT:-5529}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 14. AI Memory & Cognitive ────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Mem0 — AI memory layer (OpenAI-compatible) ───────────────────
+  mem0:
+    <<: *cpu-only
+    image: ghcr.io/mem0ai/mem0-server:latest
+    container_name: mem0
+    profiles:
+      - memory
+      - all
+    ports:
+      - "${MEM0_PORT:-5530}:8000"
+    environment:
+      - OPENAI_API_BASE=http://host.docker.internal:11434/v1
+      - OPENAI_API_KEY=ollama
+      - QDRANT_URL=http://qdrant:6333
+    volumes:
+      - mem0-data:/data
+    depends_on:
+      - qdrant
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Letta — Agent memory with persistent state ───────────────────
+  letta:
+    <<: *cpu-only
+    image: letta/letta:latest
+    container_name: letta
+    profiles:
+      - memory
+      - all
+    ports:
+      - "${LETTA_PORT:-5531}:8283"
+    environment:
+      - LETTA_LLM_ENDPOINT=http://host.docker.internal:11434/v1
+      - LETTA_LLM_ENDPOINT_TYPE=openai
+      - LETTA_LLM_MODEL=gpt-4
+      - LETTA_LLM_CONTEXT_WINDOW=8192
+    volumes:
+      - letta-data:/root/.letta
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 15. NSFW / 18+ Tools ─────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── FaceFusion — Next-gen face swap & enhancement ────────────────
+  # NOTE: Requires GPU for best performance. GTX 1060 may work for inference.
+  fusion:
+    <<: *gpu-reserved
+    image: ghcr.io/facefusion/facefusion:latest
+    container_name: fusion
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${FUSION_PORT:-5532}:7860"
+    volumes:
+      - fusion-input:/input:ro
+      - fusion-output:/output
+      - fusion-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Rope — Real-time face swap GUI ───────────────────────────────
+  # NOTE: RTX-optimized — may be slow on Pascal
+  rope:
+    <<: *gpu-reserved
+    image: ghcr.io/hillobar/rope:latest
+    container_name: rope
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${ROPE_PORT:-5533}:7860"
+    volumes:
+      - rope-input:/input:ro
+      - rope-output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── RVC — Voice cloning/conversion ───────────────────────────────
+  rvc:
+    <<: *gpu-reserved
+    image: ghcr.io/rvc-project/retrieval-based-voice-conversion:latest
+    container_name: rvc
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${RVC_PORT:-5534}:7865"
+    volumes:
+      - rvc-models:/app/assets/weights
+      - rvc-logs:/app/logs
+      - rvc-output:/opt/autodl-tmp/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Applio — RVC fork with better UI ─────────────────────────────
+  applio:
+    <<: *gpu-reserved
+    image: ghcr.io/iahispano/applio:latest
+    container_name: applio
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${APPLIO_PORT:-5535}:7865"
+    volumes:
+      - applio-models:/app/assets/weights
+      - applio-output:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Bark — Text-to-audio with expressions (laughs, sighs) ────────
+  bark:
+    <<: *cpu-only
+    image: ghcr.io/suno-ai/bark:latest
+    container_name: bark
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${BARK_PORT:-5536}:7860"
+    volumes:
+      - bark-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── kohya_ss — LoRA training ─────────────────────────────────────
+  kohya:
+    <<: *gpu-reserved
+    image: ghcr.io/bmaltais/kohya_ss:latest
+    container_name: kohya
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${KOHYA_PORT:-5537}:7860"
+    volumes:
+      - kohya-data:/workspace
+      - kohya-models:/workspace/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── AnimateDiff — Image to short video ───────────────────────────
+  animatediff:
+    <<: *gpu-reserved
+    image: ghcr.io/guoyww/animatediff:latest
+    container_name: animatediff
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${ANIMATEDIFF_PORT:-5538}:7860"
+    volumes:
+      - animatediff-input:/input:ro
+      - animatediff-output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── DeepFaceLive — Real-time deepfake for video calls ────────────
+  deepfacelive:
+    <<: *gpu-reserved
+    image: ghcr.io/iperov/deepfacelive:latest
+    container_name: deepfacelive
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${DEEPFACELIVE_PORT:-5564}:7860"
+    volumes:
+      - deepfacelive-models:/models
+      - deepfacelive-workspace:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Roop (discontinued) — Original one-click face swap ───────────
+  # NOTE: Discontinued; forked into FaceFusion. Kept for reference.
+  roop-discontinued:
+    <<: *gpu-reserved
+    image: ghcr.io/s0md3v/roop:latest
+    container_name: roop-discontinued
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${ROOP_DISCONTINUED_PORT:-5565}:7860"
+    volumes:
+      - roop-input:/input:ro
+      - roop-output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Moore-AnimateAnyone — Pose-driven character animation ────────
+  moore-animateanyone:
+    <<: *gpu-reserved
+    image: ghcr.io/moore threads/moore-animateanyone:latest
+    container_name: moore-animateanyone
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${MOORE_ANIMATEANYONE_PORT:-5566}:7860"
+    volumes:
+      - moore-input:/input:ro
+      - moore-output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── MagicAnimate — Densepose-guided human animation ──────────────
+  magicanimate:
+    <<: *gpu-reserved
+    image: ghcr.io/magic-research/magicanimate:latest
+    container_name: magicanimate
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${MAGICANIMATE_PORT:-5567}:7860"
+    volumes:
+      - magicanimate-input:/input:ro
+      - magicanimate-output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── AI Toolkit (Microsoft) — LoRA training toolkit ───────────────
+  ai-toolkit:
+    <<: *gpu-reserved
+    image: ghcr.io/microsoft/ai-toolkit:latest
+    container_name: ai-toolkit
+    profiles:
+      - nsfw
+      - all
+    ports:
+      - "${AI_TOOLKIT_PORT:-5568}:7860"
+    volumes:
+      - ai-toolkit-data:/workspace
+      - ai-toolkit-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── Stability Matrix — Package manager for SD UIs ────────────────
+  # NOTE: Manages A1111, ComfyUI, Fooocus. Desktop app, not a service.
+  #       Documented here for reference; typically run as desktop app.
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ── 16. Also Notable (Optional) ──────────────────────────────────
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Surya — OCR (also notable) ───────────────────────────────────
+  surya:
+    <<: *cpu-only
+    image: ghcr.io/vikParuchuri/surya:latest
+    container_name: surya
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - surya-input:/input:ro
+      - surya-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Docling — Document understanding (also notable) ──────────────
+  docling:
+    <<: *cpu-only
+    image: ghcr.io/ds4sd/docling:latest
+    container_name: docling
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - docling-input:/input:ro
+      - docling-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── whisper.cpp — CPU-optimized Whisper (also notable) ───────────
+  whisper-cpp:
+    <<: *cpu-only
+    image: ghcr.io/ggerganov/whisper.cpp:latest
+    container_name: whisper-cpp
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - whisper-cpp-input:/input:ro
+      - whisper-cpp-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Automatic1111 — Classic Stable Diffusion WebUI (legacy) ──────
+  auto1111:
+    <<: *gpu-reserved
+    image: ghcr.io/automatic1111/stable-diffusion-webui:latest
+    container_name: auto1111
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${AUTO1111_PORT:-5542}:7860"
+    volumes:
+      - auto1111-data:/app
+      - auto1111-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── TubeArchivist — Video archiving + search ─────────────────────
+  tubearchivist:
+    <<: *cpu-only
+    image: ghcr.io/tubearchivist/tubearchivist:latest
+    container_name: tubearchivist
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${TUBEARCHIVIST_PORT:-5543}:8000"
+    volumes:
+      - tubearchivist-media:/youtube
+      - tubearchivist-cache:/cache
+    environment:
+      - ES_URL=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Elasticsearch for TubeArchivist ──────────────────────────────
+  elasticsearch:
+    <<: *cpu-only
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: elasticsearch
+    profiles:
+      - also-notable
+      - all
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Dify — AI workflow builder (also notable) ────────────────────
+  dify:
+    <<: *cpu-only
+    image: langgenius/dify-api:latest
+    container_name: dify
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${DIFY_PORT:-5544}:5001"
+    volumes:
+      - dify-data:/app/api/storage
+    environment:
+      - MODE=api
+      - SECRET_KEY=dify_secret_key_change_me
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Bloop — Code search (also notable) ───────────────────────────
+  bloop:
+    <<: *cpu-only
+    image: ghcr.io/alexpasmantier/bloop:latest
+    container_name: bloop
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${BLOOP_PORT:-5545}:5050"
+    volumes:
+      - bloop-config:/config
+    environment:
+      - CONFIG_DIR=/config
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Nougat — PDF → Markdown (academic papers) ────────────────────
+  nougat:
+    <<: *cpu-only
+    image: ghcr.io/facebookresearch/nougat:latest
+    container_name: nougat
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - nougat-input:/input:ro
+      - nougat-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── SpeechBrain — Speech toolkit (ASR, TTS, speaker) ─────────────
+  speechbrain:
+    <<: *cpu-only
+    image: speechbrain/speechbrain:latest
+    container_name: speechbrain
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${SPEECHBRAIN_PORT:-5547}:8080"
+    volumes:
+      - speechbrain-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Coqui TTS — TTS (no longer maintained but functional) ────────
+  coqui-tts:
+    <<: *cpu-only
+    image: ghcr.io/coqui-ai/tts:latest
+    container_name: coqui-tts
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${COQUI_TTS_PORT:-5548}:5002"
+    volumes:
+      - coqui-tts-data:/root/.local
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Edge TTS — Zero-GPU TTS via Edge Online TTS API ──────────────
+  edge-tts:
+    <<: *cpu-only
+    image: ghcr.io/manmay-nakhashi/edge-tts:latest
+    container_name: edge-tts
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${EDGE_TTS_PORT:-5549}:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ── Spleeter — Audio stem separation (outdated by Demucs) ────────
+  spleeter:
+    <<: *cpu-only
+    image: deezer/spleeter:latest
+    container_name: spleeter
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - spleeter-input:/input:ro
+      - spleeter-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── InvokeAI — SD image gen (polished, 27k stars) ────────────────
+  invokeai:
+    <<: *gpu-reserved
+    image: ghcr.io/invoke-ai/invokeai:latest
+    container_name: invokeai
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${INVOKEAI_PORT:-5551}:9090"
+    volumes:
+      - invokeai-data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── CodeFormer — Face restoration (alternative to GFPGAN) ────────
+  codeformer:
+    <<: *cpu-only
+    image: ghcr.io/sczhou/codeformer:latest
+    container_name: codeformer
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - codeformer-input:/input:ro
+      - codeformer-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── SwinIR — Image restoration (alternative to ESRGAN) ───────────
+  swinir:
+    <<: *cpu-only
+    image: ghcr.io/jingyunliang/swinir:latest
+    container_name: swinir
+    profiles:
+      - also-notable
+      - all
+    volumes:
+      - swinir-input:/input:ro
+      - swinir-output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── SGLang — LLM serving (alternative to vLLM) ───────────────────
+  # ⚠️ BLOCKER: May need SM 8.0+ like vLLM. CPU mode limited.
+  sglang:
+    <<: *gpu-reserved
+    image: lmsysorg/sglang:latest
+    container_name: sglang
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${SGLANG_PORT:-5554}:30000"
+    environment:
+      - SGLANG_BACKEND=triton
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── TensorRT-LLM — NVIDIA optimized LLM serving ──────────────────
+  # ⚠️ BLOCKER: Requires SM 8.0+ (Ampere+). GTX 1060 Pascal blocked.
+  tensorrt-llm:
+    <<: *gpu-reserved
+    image: nvidia/tensorrt-llm:latest
+    container_name: tensorrt-llm
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${TENSORRT_LLM_PORT:-5555}:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+
+  # ── SmarterRouter — VRAM-aware LLM routing ───────────────────────
+  smarter-router:
+    <<: *cpu-only
+    image: ghcr.io/smarter-router/smarter-router:latest
+    container_name: smarter-router
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${SMARTER_ROUTER_PORT:-5556}:8000"
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── yt-dlp-web-ui — NAS-friendly yt-dlp web UI ──────────────────
+  yt-dlp-web-ui:
+    <<: *cpu-only
+    image: ghcr.io/marcopeg/yt-dlp-server:latest
+    container_name: yt-dlp-web-ui
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${YT_DLP_WEB_UI_PORT:-5557}:3000"
+    volumes:
+      - yt-dlp-downloads:/downloads
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ── Stalwart — Modern mail server (alternative to Mailu) ─────────
+  # ⚠️ BLOCKER: Needs port 25/587 + DNS/MX/SSL setup.
+  stalwart:
+    <<: *cpu-only
+    image: stalwartlabs/mail-server:latest
+    container_name: stalwart
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${STALWART_SMTP_PORT:-587}:587"
+      - "${STALWART_HTTP_PORT:-5558}:8080"
+    volumes:
+      - stalwart-data:/opt/stalwart-mail
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── Postal — Transactional mail server ───────────────────────────
+  postal:
+    <<: *cpu-only
+    image: ghcr.io/postalserver/postal:latest
+    container_name: postal
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${POSTAL_PORT:-5559}:5000"
+    volumes:
+      - postal-data:/opt/postal/data
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── OpenSanctions — Org/person screening ─────────────────────────
+  opensanctions:
+    <<: *cpu-only
+    image: ghcr.io/opensanctions/opensanctions:latest
+    container_name: opensanctions
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${OPENSANCTIONS_PORT:-5560}:8000"
+    volumes:
+      - opensanctions-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Gophish — Phishing simulation/testing ────────────────────────
+  gophish:
+    <<: *cpu-only
+    image: ghcr.io/gophish/gophish:latest
+    container_name: gophish
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${GOPHISH_PORT:-5561}:3333"
+      - "${GOPHISH_PORT}:3333"
+    volumes:
+      - gophish-data:/opt/gophish
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ── Recallium — AI memory (minimal) ──────────────────────────────
+  recallium:
+    <<: *cpu-only
+    image: ghcr.io/recallium/recallium:latest
+    container_name: recallium
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${RECALLIUM_PORT:-5562}:8000"
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ── Zenii — 20MB memory brain (minimal) ──────────────────────────
+  zenii:
+    <<: *cpu-only
+    image: ghcr.io/zenii-ai/zenii:latest
+    container_name: zenii
+    profiles:
+      - also-notable
+      - all
+    ports:
+      - "${ZENII_PORT:-5563}:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── Supporting Services (shared infrastructure) ────────────────────
+  # NOTE: These may already exist in cf-expand stack — referenced here
+  #       for dependency purposes. Commented out to avoid conflicts.
+
+  # postgres-tools:
+  #   image: postgres:16-alpine
+  #   container_name: postgres-tools
+  #   ports:
+  #     - "4433:5432"
+  #   environment:
+  #     POSTGRES_USER: tools
+  #     POSTGRES_PASSWORD: tools_dev_2025
+  #     POSTGRES_DB: tools_db
+  #   volumes:
+  #     - postgres-tools-data:/var/lib/postgresql/data
+
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: qdrant
+  #   ports:
+  #     - "6333:6333"
+  #     - "6334:6334"
+  #   volumes:
+  #     - qdrant-data:/qdrant/storage
+
+volumes:
+  # OCR
+  glm-ocr-data:
+  paddle-ocr-data:
+  marker-data:
+
+  # Speech
+  faster-whisper-data:
+  whisper-x-data:
+  whisper-x-input:
+  whisper-x-output:
+  funasr-data:
+
+  # TTS
+  piper-voices:
+  kokoro-data:
+  paddle-speech-data:
+
+  # Audio
+  demucs-input:
+  demucs-output:
+  uvr5-input:
+  uvr5-output:
+  audiosep-data:
+
+  # Translation
+  pdf-translate-input:
+  pdf-translate-output:
+  libre-translate-data:
+  argos-data:
+
+  # Image Gen
+  comfyui-data:
+  comfyui-models:
+  fooocus-data:
+  fooocus-models:
+  swarmui-data:
+
+  # Image Enhance
+  esrgan-input:
+  esrgan-output:
+  gfpgan-input:
+  gfpgan-output:
+  clarity-data:
+
+  # Code
+  tabby-data:
+
+  # Video
+  metube-downloads:
+  reclip-downloads:
+
+  # RAG
+  privategpt-data:
+  privategpt-models:
+  anythingllm-storage:
+  anythingllm-env:
+  paperqa2-data:
+
+  # Email
+  anonaddy-data:
+  anonaddy-config:
+  simplelogin-data:
+  simplelogin-config:
+  mailu-data:
+  mailu-config:
+
+  # Privacy
+  secret-scanner-data:
+
+  # Memory
+  mem0-data:
+  letta-data:
+
+  # NSFW
+  fusion-input:
+  fusion-output:
+  fusion-models:
+  rope-input:
+  rope-output:
+  rvc-models:
+  rvc-logs:
+  rvc-output:
+  applio-models:
+  applio-output:
+  bark-data:
+  kohya-data:
+  kohya-models:
+  animatediff-input:
+  animatediff-output:
+  deepfacelive-models:
+  deepfacelive-workspace:
+  roop-input:
+  roop-output:
+  moore-input:
+  moore-output:
+  magicanimate-input:
+  magicanimate-output:
+  ai-toolkit-data:
+  ai-toolkit-models:
+
+  # Also Notable
+  surya-input:
+  surya-output:
+  docling-input:
+  docling-output:
+  nougat-input:
+  nougat-output:
+  whisper-cpp-input:
+  whisper-cpp-output:
+  speechbrain-data:
+  coqui-tts-data:
+  spleeter-input:
+  spleeter-output:
+  invokeai-data:
+  codeformer-input:
+  codeformer-output:
+  swinir-input:
+  swinir-output:
+  yt-dlp-downloads:
+  stalwart-data:
+  postal-data:
+  opensanctions-data:
+  gophish-data:
+  auto1111-data:
+  auto1111-models:
+  tubearchivist-media:
+  tubearchivist-cache:
+  elasticsearch-data:
+  dify-data:
+  bloop-config:
+
+  # Supporting
+  # postgres-tools-data:
+  # qdrant-data:
