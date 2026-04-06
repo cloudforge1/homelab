@@ -1,0 +1,1055 @@
+#!/usr/bin/env bash
+# cf — Homelab CLI homelab status, health, and uptime monitor
+#
+# Usage:
+#   cf0              — Full status dashboard
+#   cf0 --uptime     — Uptime summary only
+#   cf0 --health     — HTTP health probes only
+#   cf0 --stacks     — Compose project summary only
+#   cf0 --endpoints  — Endpoint URLs only
+#   cf0 --json       — Machine-readable JSON output
+#   cf0 --watch      — Live watch mode (refresh every 5s)
+#   cf --help       — This help
+#
+set -euo pipefail
+
+# ── Colors ──────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Icons ───────────────────────────────────────────────────────────────
+ICON_OK='✓'
+ICON_WARN='⚠'
+ICON_FAIL='✗'
+ICON_RUN='▶'
+ICON_STOP='■'
+
+# ── Config ──────────────────────────────────────────────────────────────
+COMPOSE_DIR="/opt/homelab/compose"
+IP=$(hostname -I | awk '{print $1}')
+HEALTH_TIMEOUT=3
+
+# ── Health endpoints: name:port:path ───────────────────────────────────
+# Special prefixes: tcp: for TCP-only check, https: for HTTPS
+declare -a HEALTH_ENDPOINTS=(
+  "Ollama:11434:/api/tags"
+  "Open-WebUI:8080:/"
+  "SearXNG:8081:/"
+  "ZeroClaw:42617:/"
+  "OpenRAG:3000:/"
+  "Langflow:7860:/"
+  "MindsDB:47334:/api/status"
+  "Cognee:8000:/"
+  "n8n:5679:/"
+  "Qdrant:6333:/healthz"
+  "Chroma:8020:/api/v2/heartbeat"
+  "Weaviate:8090:/v1/.well-known/ready"
+  "Milvus:9091:/healthz"
+  "https:OpenSearch:9200:/"
+  "OS-Dashboards:5601:/"
+  "tcp:Serena:9121:/"
+  "Scrutiny:7786:/api/health"
+  "OpenSpace:7788:/api/v1/health"
+  "OpenBB:6900:/"
+  "TensorLake:8900:/"
+  "Nautilus:8889:/"
+  "Nuclio:8070:/"
+  "tcp:PG-Tools:4433:/"
+  "RedisInsight:5540:/"
+  # AI Tools (disabled by default)
+  "tcp:Piper:5500:/"
+  "tcp:Faster-Whisper:5501:/"
+  "tcp:WhisperX:5502:/"
+  "tcp:FunASR:5503:/"
+  "tcp:Kokoro:5504:/"
+  "tcp:PaddleSpeech:5505:/"
+  "tcp:Demucs:5506:/"
+  "tcp:UVR5:5507:/"
+  "tcp:AudioSep:5508:/"
+  "tcp:PDFMathTranslate:5509:/"
+  "tcp:PaddleOCR:5510:/"
+  "tcp:Marker:5511:/"
+  "tcp:LibreTranslate:5512:/"
+  "tcp:ArgosTranslate:5513:/"
+  "tcp:RealESRGAN:5514:/"
+  "tcp:GFPGAN:5515:/"
+  "tcp:ClarityUpscaler:5516:/"
+  "tcp:Aider:5517:/"
+  "tcp:Tabby:5518:/"
+  "tcp:Langfuse:5519:/"
+  "tcp:GLMOCR:5520:/"
+  "tcp:Cobalt:5521:/"
+  "tcp:MeTube:5522:/"
+  "tcp:PrivateGPT:5523:/"
+  "tcp:AnythingLLM:3001:/"
+  "tcp:PaperQA2:5524:/"
+  "tcp:SimpleLogin:5525:/"
+  "tcp:Mailu:5526:/"
+  "tcp:Presidio:5527:/"
+  "tcp:SecretScanner:5528:/"
+  "tcp:PIIDetector:5529:/"
+  "tcp:Infinity:7997:/"
+  "tcp:LiteLLM:4000:/"
+  "tcp:Mem0:5530:/"
+  "tcp:Letta:5531:/"
+  "tcp:ComfyUI:7861:/"
+  "tcp:Fooocus:7862:/"
+  "tcp:SwarmUI:7863:/"
+  "tcp:Reclip:8899:/"
+  # NSFW Tools
+  "tcp:FaceFusion:5532:/"
+  "tcp:Rope:5533:/"
+  "tcp:RVC:5534:/"
+  "tcp:Applio:5535:/"
+  "tcp:Bark:5536:/"
+  "tcp:kohya:5537:/"
+  "tcp:AnimateDiff:5538:/"
+  # Also Notable
+  "tcp:Surya:5539:/"
+  "tcp:Docling:5540:/"
+  "tcp:whisper.cpp:5541:/"
+  "tcp:Auto1111:5542:/"
+  "tcp:TubeArchivist:5543:/"
+  "tcp:Dify:5544:/"
+  "tcp:Bloop:5545:/"
+)
+
+# ── Helpers ─────────────────────────────────────────────────────────────
+hr() { printf "${DIM}%s${NC}\n" "$(printf '─%.0s' {1..70})"; }
+title() { printf "\n${BOLD}${CYAN}%s${NC}\n" "$*"; }
+ok() { printf "  ${GREEN}${ICON_OK}${NC} %s\n" "$*"; }
+warn() { printf "  ${YELLOW}${ICON_WARN}${NC} %s\n" "$*"; }
+fail() { printf "  ${RED}${ICON_FAIL}${NC} %s\n" "$*"; }
+
+# Format uptime duration from seconds
+format_uptime() {
+  local secs=$1
+  if (( secs < 60 )); then
+    echo "${secs}s"
+  elif (( secs < 3600 )); then
+    echo "$(( secs / 60 ))m"
+  elif (( secs < 86400 )); then
+    echo "$(( secs / 3600 ))h $(( (secs % 3600) / 60 ))m"
+  else
+    echo "$(( secs / 86400 ))d $(( (secs % 86400) / 3600 ))h"
+  fi
+}
+
+# Format memory size
+fmt_mem() {
+  local bytes=$1
+  if (( bytes >= 1073741824 )); then
+    echo "$(( bytes / 1073741824 ))GB"
+  elif (( bytes >= 1048576 )); then
+    echo "$(( bytes / 1048576 ))MB"
+  elif (( bytes >= 1024 )); then
+    echo "$(( bytes / 1024 ))KB"
+  else
+    echo "${bytes}B"
+  fi
+}
+
+# ── Resource Info ──────────────────────────────────────────────────────
+show_resources() {
+  title "RESOURCES"
+
+  # Memory
+  local free_gb total_gb used_pct
+  free_gb=$(free -g | awk '/Mem:/ {print $7}')
+  total_gb=$(free -g | awk '/Mem:/ {print $2}')
+  used_pct=$(free | awk '/Mem:/ {printf "%.0f", $3/$2*100}')
+  printf "  ${BLUE}RAM:${NC}    %sGB / %sGB used (%s%%)\n" "$(( total_gb - free_gb ))" "$total_gb" "$used_pct"
+
+  # CPU
+  local nprocs load1 load5 load15
+  nprocs=$(nproc)
+  read -r load1 load5 load15 < <(cat /proc/loadavg | awk '{print $1, $2, $3}')
+  printf "  ${BLUE}CPU:${NC}     %s threads, load: %s %s %s\n" "$nprocs" "$load1" "$load5" "$load15"
+
+  # GPU
+  if command -v nvidia-smi &>/dev/null; then
+    local gpu_info
+    gpu_info=$(nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null | head -1)
+    if [[ -n "$gpu_info" ]]; then
+      printf "  ${BLUE}GPU:${NC}     %s\n" "$gpu_info"
+    fi
+  fi
+
+  # Disk
+  local disk_info
+  disk_info=$(df -h /home | tail -1)
+  local disk_avail disk_total
+  disk_avail=$(echo "$disk_info" | awk '{print $4}')
+  disk_total=$(echo "$disk_info" | awk '{print $2}')
+  local disk_pct
+  disk_pct=$(echo "$disk_info" | awk '{print $5}')
+  printf "  ${BLUE}Disk:${NC}    %s free / %s total (%s)\n" "$disk_avail" "$disk_total" "$disk_pct"
+
+  # Uptime
+  local uptime_secs
+  uptime_secs=$(awk '{print int($1)}' /proc/uptime)
+  printf "  ${BLUE}Uptime:${NC}  %s\n" "$(format_uptime "$uptime_secs")"
+}
+
+# ── Stack Discovery ─────────────────────────────────────────────────────
+show_stacks() {
+  title "COMPOSE STACKS"
+
+  local total_containers=0
+  local running_containers=0
+  local unhealthy_containers=0
+
+  # Header
+  printf "  ${BOLD}%-18s %-8s %-8s %-8s %s${NC}\n" "PROJECT" "TOTAL" "RUNNING" "HEALTHY" "STATUS"
+  hr
+
+  # Discover stacks dynamically via project names
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    # Count from docker compose ps by project name
+    local total running healthy
+
+    total=$(docker compose -p "$name" ps -a --quiet 2>/dev/null | wc -l)
+    running=$(docker compose -p "$name" ps --quiet 2>/dev/null | wc -l)
+
+    # Count healthy containers
+    healthy=0
+    while IFS= read -r status_line; do
+      if [[ "$status_line" == *"healthy"* ]]; then
+        ((healthy++)) || true
+      elif [[ "$status_line" == *"unhealthy"* ]]; then
+        ((unhealthy_containers++)) || true
+      fi
+    done < <(docker compose -p "$name" ps --format '{{.Status}}' 2>/dev/null)
+
+    local status_icon status_text
+    if (( running == total && total > 0 )); then
+      status_icon="${GREEN}${ICON_OK}${NC}"
+      status_text="all running"
+    elif (( running > 0 )); then
+      status_icon="${YELLOW}${ICON_WARN}${NC}"
+      status_text="${running}/${total} running"
+    else
+      status_icon="${RED}${ICON_FAIL}${NC}"
+      status_text="stopped"
+    fi
+
+    printf "  %-18s %-8s %-8s %-8s %b %s\n" \
+      "$name" "$total" "$running" "$healthy/$running" "$status_icon" "$status_text"
+
+    ((total_containers += total)) || true
+    ((running_containers += running)) || true
+  done < <(docker compose ls 2>/dev/null | tail -n +2 | awk '{print $1}')
+
+  hr
+  printf "  ${BOLD}%-18s %-8s %-8s %-8s %s${NC}\n" "TOTAL" "$total_containers" "$running_containers" "" ""
+  if (( unhealthy_containers > 0 )); then
+    printf "  ${RED}%s %s container(s) unhealthy${NC}\n" "$ICON_FAIL" "$unhealthy_containers"
+  fi
+}
+
+# ── Container Details ───────────────────────────────────────────────────
+show_containers() {
+  title "CONTAINERS"
+
+  printf "  ${BOLD}%-30s %-22s %-10s %-8s %s${NC}\n" "NAME" "STATUS" "UPTIME" "HEALTH" "PORTS"
+  hr
+
+  # Get all containers sorted by project
+  while IFS= read -r line; do
+    local name status ports project
+    name=$(echo "$line" | awk '{print $1}')
+    status=$(echo "$line" | sed 's/^[^ ]* *//')
+    ports=$(echo "$status" | grep -oP '0\.0\.0\.0:[0-9]+->[0-9]+(/[a-z]+)?' | head -2 | tr '\n' ', ' | sed 's/,$//')
+    # Get raw status for health parsing
+    local raw_status
+    raw_status=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || echo "unknown")
+    local health_status
+    health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || echo "")
+
+    # Get uptime
+    local started_at uptime_secs=0
+    started_at=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null || echo "")
+    if [[ -n "$started_at" && "$raw_status" == "running" ]]; then
+      local start_epoch now_epoch
+      start_epoch=$(date -d "$started_at" +%s 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      uptime_secs=$(( now_epoch - start_epoch ))
+    fi
+
+    # Determine status icon
+    local status_icon=""
+    if [[ "$raw_status" == "running" ]]; then
+      if [[ "$health_status" == "healthy" ]]; then
+        status_icon="${GREEN}${ICON_OK}${NC}"
+      elif [[ "$health_status" == "unhealthy" ]]; then
+        status_icon="${RED}${ICON_WARN}${NC}"
+      elif [[ "$health_status" == "starting" ]]; then
+        status_icon="${YELLOW}${ICON_WARN}${NC}"
+      else
+        status_icon="${GREEN}${ICON_RUN}${NC}"
+      fi
+    elif [[ "$raw_status" == "exited" || "$raw_status" == "dead" ]]; then
+      status_icon="${RED}${ICON_STOP}${NC}"
+    else
+      status_icon="${DIM}―${NC}"
+    fi
+
+    local uptime_str="-"
+    if (( uptime_secs > 0 )); then
+      uptime_str=$(format_uptime "$uptime_secs")
+    fi
+
+    local health_str="-"
+    if [[ -n "$health_status" ]]; then
+      if [[ "$health_status" == "healthy" ]]; then
+        health_str="${GREEN}healthy${NC}"
+      elif [[ "$health_status" == "unhealthy" ]]; then
+        health_str="${RED}unhealthy${NC}"
+      else
+        health_str="${YELLOW}$health_status${NC}"
+      fi
+    fi
+
+    printf "  %b %-30s %-22s %-10s %b %s\n" \
+      "$status_icon" "$name" "${raw_status}${health_status:+ ($health_status)}" \
+      "$uptime_str" "$health_str" "$ports"
+
+  done < <(docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null)
+}
+
+# ── Health Probes ───────────────────────────────────────────────────────
+show_health() {
+  title "HEALTH PROBES"
+
+  local total=0 healthy=0 unhealthy=0 unreachable=0
+  printf "  ${BOLD}%-18s %-12s %-8s %s${NC}\n" "SERVICE" "ENDPOINT" "STATUS" "LATENCY"
+  hr
+
+  for endpoint in "${HEALTH_ENDPOINTS[@]}"; do
+    local name port path scheme
+    name="${endpoint%%:*}"
+    local rest="${endpoint#*:}"
+    port="${rest%%:*}"
+    path="${rest#*:}"
+    scheme="http"
+
+    # Check for special prefixes
+    if [[ "$name" == "https" ]]; then
+      name="$port"
+      port="${path%%:*}"
+      path="${path#*:}"
+      scheme="https"
+    elif [[ "$name" == "tcp" ]]; then
+      name="$port"
+      port="${path%%:*}"
+      path="${path#*:}"
+      scheme="tcp"
+    fi
+    # Handle name being swallowed by prefix detection
+    if [[ -z "$name" || "$name" =~ ^[0-9]+$ ]]; then
+      # name was consumed by prefix, re-parse
+      local full="${endpoint#*:}"
+      name="${full%%:*}"
+      rest="${full#*:}"
+      port="${rest%%:*}"
+      path="${rest#*:}"
+    fi
+
+    ((total++)) || true
+
+    local start_ms end_ms latency_ms http_code
+    start_ms=$(date +%s%3N 2>/dev/null || echo "0")
+
+    if [[ "$scheme" == "tcp" ]]; then
+      # TCP port check only
+      if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        http_code="200"
+      else
+        http_code="000"
+      fi
+    elif [[ "$scheme" == "https" ]]; then
+      http_code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time "$HEALTH_TIMEOUT" \
+        "https://127.0.0.1:${port}${path}" 2>/dev/null)
+      [[ -z "$http_code" || "$http_code" == "000" ]] && http_code="000"
+    else
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$HEALTH_TIMEOUT" \
+        "http://127.0.0.1:${port}${path}" 2>/dev/null)
+      [[ -z "$http_code" || "$http_code" == "000" ]] && http_code="000"
+    fi
+    end_ms=$(date +%s%3N 2>/dev/null || echo "0")
+    latency_ms=$(( end_ms - start_ms ))
+
+    local icon result
+    if [[ "$http_code" =~ ^[23] ]]; then
+      icon="${GREEN}${ICON_OK}${NC}"
+      result="${GREEN}${http_code}${NC}"
+      ((healthy++)) || true
+    elif [[ "$http_code" == "000" ]]; then
+      icon="${RED}${ICON_FAIL}${NC}"
+      result="${RED}unreachable${NC}"
+      ((unreachable++)) || true
+    else
+      icon="${YELLOW}${ICON_WARN}${NC}"
+      result="${YELLOW}${http_code}${NC}"
+      ((unhealthy++)) || true
+    fi
+
+    printf "  %b %-18s :%-11s %b %4dms\n" \
+      "$icon" "$name" "$port" "$result" "$latency_ms"
+  done
+
+  hr
+  printf "  ${GREEN}${ICON_OK} %s healthy${NC}" "$healthy"
+  if (( unhealthy > 0 )); then
+    printf "  ${YELLOW}${ICON_WARN} %s warning${NC}" "$unhealthy"
+  fi
+  if (( unreachable > 0 )); then
+    printf "  ${RED}${ICON_FAIL} %s unreachable${NC}" "$unreachable"
+  fi
+  printf "\n"
+}
+
+# ── Uptime Summary ─────────────────────────────────────────────────────
+show_uptime() {
+  title "UPTIME SUMMARY"
+
+  printf "  ${BOLD}%-28s %-12s %-12s %-12s %s${NC}\n" "SERVICE" "STATUS" "UPTIME" "HEALTH" "RESTARTS"
+  hr
+
+  while IFS= read -r line; do
+    local name
+    name=$(echo "$line" | awk '{print $1}')
+
+    local raw_status health_status restart_count started_at uptime_str health_icon
+
+    raw_status=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || echo "?")
+    health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || echo "")
+    restart_count=$(docker inspect --format '{{.RestartCount}}' "$name" 2>/dev/null || echo "0")
+    started_at=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null || echo "")
+
+    uptime_str="-"
+    if [[ "$raw_status" == "running" && -n "$started_at" ]]; then
+      local start_epoch now_epoch secs
+      start_epoch=$(date -d "$started_at" +%s 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      secs=$(( now_epoch - start_epoch ))
+      if (( secs > 0 )); then
+        uptime_str=$(format_uptime "$secs")
+      fi
+    fi
+
+    # Health icon
+    if [[ "$raw_status" != "running" ]]; then
+      health_icon="${RED}${ICON_STOP}${NC}"
+    elif [[ "$health_status" == "healthy" ]]; then
+      health_icon="${GREEN}${ICON_OK}${NC}"
+    elif [[ "$health_status" == "unhealthy" ]]; then
+      health_icon="${RED}${ICON_WARN}${NC}"
+    elif [[ "$health_status" == "starting" ]]; then
+      health_icon="${YELLOW}${ICON_WARN}${NC}"
+    else
+      health_icon="${DIM}―${NC}"
+    fi
+
+    local status_str
+    if [[ "$raw_status" == "running" ]]; then
+      status_str="${GREEN}running${NC}"
+    elif [[ "$raw_status" == "exited" ]]; then
+      status_str="${RED}exited${NC}"
+    elif [[ "$raw_status" == "dead" ]]; then
+      status_str="${RED}dead${NC}"
+    elif [[ "$raw_status" == "created" ]]; then
+      status_str="${DIM}created${NC}"
+    else
+      status_str="${DIM}${raw_status}${NC}"
+    fi
+
+    local restart_str=""
+    if (( restart_count > 0 )); then
+      if (( restart_count > 5 )); then
+        restart_str="${RED}${restart_count}${NC}"
+      elif (( restart_count > 2 )); then
+        restart_str="${YELLOW}${restart_count}${NC}"
+      else
+        restart_str="${DIM}${restart_count}${NC}"
+      fi
+    fi
+
+    printf "  %-28s %b %-12s %b %s\n" \
+      "$name" "$status_str" "$uptime_str" "$health_icon" "$restart_str"
+
+  done < <(docker ps -a --format '{{.Names}}' 2>/dev/null)
+}
+
+# ── Endpoints ───────────────────────────────────────────────────────────
+show_endpoints() {
+  title "ENDPOINTS"
+
+  # Extract unique ports from endpoints, show local + network
+  declare -A seen_ports
+  printf "  ${BOLD}%-16s %-42s %-22s %s${NC}\n" "SERVICE" "LOCAL URL" "NETWORK URL" "STATUS"
+  hr
+
+  for endpoint in "${HEALTH_ENDPOINTS[@]}"; do
+    local name port path scheme
+    name="${endpoint%%:*}"
+    local rest="${endpoint#*:}"
+    port="${rest%%:*}"
+    path="${rest#*:}"
+    scheme="http"
+
+    # Handle special prefixes
+    if [[ "$name" == "https" ]]; then
+      name="$port"
+      port="${path%%:*}"
+      path="${path#*:}"
+      scheme="https"
+    elif [[ "$name" == "tcp" ]]; then
+      name="$port"
+      port="${path%%:*}"
+      path="${path#*:}"
+      scheme="tcp"
+    fi
+    if [[ -z "$name" || "$name" =~ ^[0-9]+$ ]]; then
+      local full="${endpoint#*:}"
+      name="${full%%:*}"
+      rest="${full#*:}"
+      port="${rest%%:*}"
+      path="${rest#*:}"
+    fi
+
+    if [[ -n "${seen_ports[$port]+x}" ]]; then
+      continue
+    fi
+    seen_ports[$port]=1
+
+    # Check if port is actually listening
+    local status
+    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+      status="${GREEN}listening${NC}"
+    else
+      status="${RED}not listening${NC}"
+    fi
+
+    local proto="$scheme"
+    [[ "$scheme" == "tcp" ]] && proto="tcp"
+    local local_url="${proto}://localhost:${port}${path}"
+    local net_url="${proto}://${IP}:${port}${path}"
+    if [[ "$scheme" == "tcp" ]]; then
+      local_url="tcp://localhost:${port}"
+      net_url="tcp://${IP}:${port}"
+    fi
+    printf "  %-16s %-42s %-22s %b\n" \
+      "$name" "$local_url" "$net_url" "$status"
+  done
+}
+
+# ── Ollama Models ──────────────────────────────────────────────────────
+show_models() {
+  title "OLLAMA MODELS"
+
+  echo "── LOADED (in GPU/RAM) ─────────────────────────────────────────"
+  docker exec ollama ollama ps 2>/dev/null || echo "  (none loaded)"
+
+  echo ""
+  echo "── INSTALLED ────────────────────────────────────────────────────"
+  docker exec ollama ollama list 2>/dev/null | head -30 || echo "  (none)"
+}
+
+# ── JSON Output ─────────────────────────────────────────────────────────
+show_json() {
+  local json="{"
+  json+="\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+  json+="\"host\":\"$(hostname)\","
+  json+="\"ip\":\"$IP\","
+
+  # Resources
+  local free_gb total_gb
+  free_gb=$(free -g | awk '/Mem:/ {print $7}')
+  total_gb=$(free -g | awk '/Mem:/ {print $2}')
+  json+="\"memory\":{\"total_gb\":$total_gb,\"free_gb\":$free_gb},"
+
+  # Stacks
+  json+="\"stacks\":["
+  local first=true
+  while IFS= read -r line; do
+    local name config
+    name=$(echo "$line" | awk '{print $1}')
+    config=$(echo "$line" | awk '{print $2}')
+    local total running
+    total=$(docker compose -f "$config" ps -a --quiet 2>/dev/null | wc -l)
+    running=$(docker compose -f "$config" ps --quiet 2>/dev/null | wc -l)
+    if $first; then first=false; else json+=","; fi
+    json+="{\"name\":\"$name\",\"total\":$total,\"running\":$running}"
+  done < <(docker compose ls 2>/dev/null | tail -n +2 | awk '{print $1}')
+  json+="],"
+
+  # Health
+  json+="\"health\":["
+  first=true
+  for endpoint in "${HEALTH_ENDPOINTS[@]}"; do
+    local name port path scheme
+    name="${endpoint%%:*}"
+    local rest="${endpoint#*:}"
+    port="${rest%%:*}"
+    path="${rest#*:}"
+    scheme="http"
+    if [[ "$name" == "https" ]]; then
+      name="$port"; port="${path%%:*}"; path="${path#*:}"; scheme="https"
+    elif [[ "$name" == "tcp" ]]; then
+      name="$port"; port="${path%%:*}"; path="${path#*:}"; scheme="tcp"
+    fi
+    if [[ -z "$name" || "$name" =~ ^[0-9]+$ ]]; then
+      local full="${endpoint#*:}"; name="${full%%:*}"; rest="${full#*:}"
+      port="${rest%%:*}"; path="${rest#*:}"
+    fi
+    local http_code
+    if [[ "$scheme" == "tcp" ]]; then
+      ss -tlnp 2>/dev/null | grep -q ":${port} " && http_code="200" || http_code="000"
+    elif [[ "$scheme" == "https" ]]; then
+      http_code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time "$HEALTH_TIMEOUT" \
+        "https://127.0.0.1:${port}${path}" 2>/dev/null)
+      [[ -z "$http_code" || "$http_code" == "000" ]] && http_code="000"
+    else
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$HEALTH_TIMEOUT" \
+        "http://127.0.0.1:${port}${path}" 2>/dev/null)
+      [[ -z "$http_code" || "$http_code" == "000" ]] && http_code="000"
+    fi
+    if $first; then first=false; else json+=","; fi
+    json+="{\"name\":\"$name\",\"port\":$port,\"status\":$http_code}"
+  done
+  json+="]}"
+
+  echo "$json" | python3 -m json.tool 2>/dev/null || echo "$json"
+}
+
+
+# ── Vector DBs quick view ────────────────────────────────────────────
+show_vectordbs() {
+  title "VECTOR DATABASES"
+
+  # Qdrant
+  printf "  ${BLUE}Qdrant${NC}  (6333):  http://cf0:6333/dashboard\n"
+  local qdrant_cols
+  qdrant_cols=$(curl -sf http://localhost:6333/collections 2>/dev/null |     python3 -c 'import sys,json;d=json.load(sys.stdin);[print("    "+x["name"]) for x in d.get("result",{}).get("collections",[])]' 2>/dev/null)
+  if [[ -n "$qdrant_cols" ]]; then
+    echo "$qdrant_cols"
+  else
+    echo "    ${RED}unreachable${NC}"
+  fi
+
+  # Chroma
+  printf "\n  ${BLUE}Chroma${NC}  (8020):  "
+  if curl -sf http://localhost:8020/api/v2/heartbeat >/dev/null 2>&1; then
+    printf "${GREEN}✓${NC} healthy\n"
+  else
+    printf "${RED}✗${NC} unreachable\n"
+  fi
+
+  # Weaviate
+  printf "  ${BLUE}Weaviate${NC} (8090):  "
+  if curl -sf http://localhost:8090/v1/.well-known/ready >/dev/null 2>&1; then
+    printf "${GREEN}✓${NC} healthy\n"
+  else
+    printf "${RED}✗${NC} unreachable\n"
+  fi
+
+  # Milvus
+  printf "  ${BLUE}Milvus${NC}  (19530):  "
+  if curl -sf http://localhost:9091/healthz >/dev/null 2>&1; then
+    printf "${GREEN}✓${NC} healthy\n"
+  else
+    printf "${RED}✗${NC} unreachable\n"
+  fi
+
+  # OpenSearch
+  printf "  ${BLUE}OpenSearch${NC} (9200):  "
+  local os_status
+  os_status=$(curl -skf -u admin:CCG04fuFpX8fFcl26JaWA1! https://localhost:9200/_cluster/health 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","?"))' 2>/dev/null)
+  if [[ "$os_status" == "green" ]]; then
+    printf "${GREEN}✓${NC} %s\n" "$os_status"
+  elif [[ -n "$os_status" ]]; then
+    printf "${YELLOW}⚠${NC} %s\n" "$os_status"
+  else
+    printf "${RED}✗${NC} unreachable\n"
+  fi
+}
+
+
+# ── Shell helpers (called by .homelabrc aliases) ─────────────────────
+show_disk() {
+  echo "── DISK USAGE ──"
+  df -h / /home 2>/dev/null
+  echo ""
+  echo "── Top 20 dirs in /home ──"
+  du -sh /home/*/ 2>/dev/null | sort -rh | head -20
+  echo ""
+  echo "── Docker disk ──"
+  docker system df
+}
+
+show_mem() {
+  echo "── MEMORY ──"
+  free -h
+  echo ""
+  echo "── Top 15 consumers ──"
+  ps aux --sort=-%mem | head -16
+  echo ""
+  docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | head -30
+}
+
+show_cpu() {
+  echo "── CPU ──"
+  echo "Load: $(cat /proc/loadavg)"
+  echo "Cores: $(nproc)"
+  echo ""
+  ps aux --sort=-%cpu | head -16
+  echo ""
+  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" 2>/dev/null | head -30
+}
+
+show_gpu() {
+  command -v nvidia-smi &>/dev/null && nvidia-smi || echo "nvidia-smi not found"
+}
+
+show_net() {
+  local ip; ip=$(hostname -I | awk '{print $1}')
+  echo "── NETWORK ──"
+  echo "IP: $ip  Hostname: $(hostname)"
+  echo ""
+  docker network ls
+  echo ""
+  echo "── Listening ports ──"
+  ss -tlnp | grep -E ":(11434|8080|8081|3000|5601|9200|7860|5679|8070|6333|8900|8889|6900|4433|9121|7786|7788|8020|8090|19530|9091|5540|42617|8000|47334|47335|5500|5501|5502|5503|5504|5505|5506|5507|5508|5509|5510|5511|5512|5513|7861|7862|7863|5514|5515|5516|5517|5518|4000|5519|7997|5521|5522|8899|5523|3001|5524|5525|5526|5527|5528|5529|5530|5531|5532|5533|5534|5535|5536|5537|5538|5539|5540|5541|5542|5543|5544|5545) " 2>/dev/null
+}
+
+show_ps() {
+  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | head -40
+}
+
+_cf_find() {
+  local pattern="${1:-}"
+  [[ -z "$pattern" ]] && { echo "Usage: cf find <pattern>"; return 1; }
+  echo "── Containers matching '$pattern' ──"
+  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -i "$pattern"
+  echo ""
+  echo "── Compose files matching '$pattern' ──"
+  ls "/opt/homelab/compose"/*"$pattern"* 2>/dev/null || echo "  (none)"
+}
+
+# ── Main ────────────────────────────────────────────────────────────────
+show_all() {
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════════╗"
+  echo "║         cf0 Homelab Monitor — $(date '+%Y-%m-%d %H:%M:%S')            ║"
+  echo "║         Host: $(hostname)  IP: $IP                      ║"
+  echo "╚═══════════════════════════════════════════════════════════════╝"
+
+  show_resources
+  echo ""
+  show_stacks
+  echo ""
+  show_containers
+  echo ""
+  show_health
+  echo ""
+  show_endpoints
+  echo ""
+  show_models
+}
+
+
+# ── Lifecycle (compose operations) ────────────────────────────────────
+_compose_file() {
+  case "$1" in
+    core)      echo "docker-compose.yml" ;;
+    openrag)   echo "docker-compose.openrag.yml" ;;
+    expand)    echo "docker-compose.expand.yml" ;;
+    serena)    echo "docker-compose.serena.yml" ;;
+    scrutiny)  echo "docker-compose.scrutiny.yml" ;;
+    openspace) echo "docker-compose.openspace.yml" ;;
+    vectordbs) echo "docker-compose.vectordbs.yml" ;;
+    ai-apps)   echo "docker-compose.ai-apps.yml" ;;
+    ai-tools)  echo "docker-compose.ai-tools.yml" ;;
+    *)         echo "" ;;
+  esac
+}
+
+_compose_files() {
+  local f
+  for f in docker-compose.yml docker-compose.openrag.yml docker-compose.expand.yml            docker-compose.serena.yml docker-compose.scrutiny.yml            docker-compose.openspace.yml docker-compose.vectordbs.yml            docker-compose.ai-apps.yml docker-compose.ai-tools.yml; do
+    [[ -f "$COMPOSE_DIR/$f" ]] && echo "$COMPOSE_DIR/$f"
+  done
+}
+
+_do_up() {
+  local stack="${1:-all}"
+  if [[ "$stack" == "all" ]]; then
+    echo "Starting all stacks..."
+    local f
+    for f in $(_compose_files); do
+      docker compose -f "$f" up -d 2>&1 | tail -1
+    done
+  else
+    local file; file=$(_compose_file "$stack")
+    [[ -z "$file" ]] && { echo "Unknown stack: $stack. Available: core openrag expand serena scrutiny openspace vectordbs ai-apps ai-tools all"; return 1; }
+    docker compose -f "$COMPOSE_DIR/$file" up -d
+  fi
+}
+
+_do_down() {
+  local stack="${1:-all}"
+  if [[ "$stack" == "all" ]]; then
+    echo "Stopping all stacks..."
+    local f
+    for f in $(_compose_files); do
+      docker compose -f "$f" down 2>&1 | tail -1
+    done
+  else
+    local file; file=$(_compose_file "$stack")
+    [[ -z "$file" ]] && { echo "Unknown stack: $stack"; return 1; }
+    docker compose -f "$COMPOSE_DIR/$file" down
+  fi
+}
+
+_do_restart() {
+  local stack="${1:-all}"
+  _do_down "$stack"
+  sleep 2
+  _do_up "$stack"
+}
+
+_do_pull() {
+  local stack="${1:-all}"
+  if [[ "$stack" == "all" ]]; then
+    local f
+    for f in $(_compose_files); do
+      echo "Pulling $(basename "$f")..."
+      docker compose -f "$f" pull 2>&1 | grep -E "Pulled|error" || true
+    done
+  else
+    local file; file=$(_compose_file "$stack")
+    [[ -z "$file" ]] && { echo "Unknown stack: $stack"; return 1; }
+    docker compose -f "$COMPOSE_DIR/$file" pull
+  fi
+}
+
+_do_logs() {
+  local svc="${1:-}"
+  [[ -z "$svc" ]] && { echo "Usage: cf logs <service>  (cf ps to list)"; return 1; }
+  docker logs -f --tail 100 "$svc"
+}
+
+_do_logs_since() {
+  local svc="${1:-}" since="${2:-1h}"
+  [[ -z "$svc" ]] && { echo "Usage: cf logs-since <service> [since]"; return 1; }
+  docker logs --since "$since" "$svc"
+}
+
+_do_restart_svc() {
+  local svc="${1:-}"
+  [[ -z "$svc" ]] && { echo "Usage: cf restart-svc <service>"; return 1; }
+  docker restart "$svc"
+}
+
+_do_stop_svc() {
+  local svc="${1:-}"
+  [[ -z "$svc" ]] && { echo "Usage: cf stop-svc <service>"; return 1; }
+  docker stop "$svc"
+}
+
+_do_start_svc() {
+  local svc="${1:-}"
+  [[ -z "$svc" ]] && { echo "Usage: cf start-svc <service>"; return 1; }
+  docker start "$svc"
+}
+
+# ── Container ops ─────────────────────────────────────────────────────
+show_ps_running() {
+  docker ps --format "table {{.Names}}	{{.Status}}	{{.Ports}}" | head -40
+}
+
+show_ps_by_stack() {
+  docker compose ls
+  echo ""
+  docker compose ls | tail -n +2 | awk '{print $1}' | while read -r proj; do
+    echo "── $proj ──"
+    docker compose -p "$proj" ps --format "  {{.Name}}	{{.Status}}" 2>/dev/null || true
+    echo ""
+  done
+}
+
+show_images() {
+  docker images --format "table {{.Repository}}	{{.Tag}}	{{.Size}}	{{.CreatedAt}}" | sort -k4 -r | head -50
+}
+
+show_dangling() {
+  local count
+  count=$(docker images --filter "dangling=true" --format "{{.ID}}" | wc -l)
+  echo "Dangling images: $count"
+  if [[ "${1:-}" == "--prune" ]]; then
+    docker image prune -f
+    echo "Pruned."
+  elif (( count > 0 )); then
+    echo "Run: cf dangling --prune"
+  fi
+}
+
+show_prune() {
+  echo "Pruning unused images and build cache..."
+  docker system df
+  echo ""
+  read -r -p "Continue? [y/N] " confirm
+  if [[ "$confirm" == "y" ]]; then
+    docker system prune -f
+    echo "Done."
+    docker system df
+  else
+    echo "Aborted."
+  fi
+}
+
+# ── Ollama helpers ────────────────────────────────────────────────────
+do_ollama() {
+  docker exec ollama ollama "$@"
+}
+
+do_ollama_list() {
+  docker exec ollama ollama list
+}
+
+do_ollama_ps() {
+  docker exec ollama ollama ps
+}
+
+do_ollama_chat() {
+  docker exec -it ollama ollama run qwen3.5:4b "$@"
+}
+
+do_ollama_think() {
+  docker exec -it ollama ollama run deepseek-r1:8b "$@"
+}
+
+do_ollama_big() {
+  docker exec -it ollama ollama run qwen3.5:70b "$@"
+}
+
+do_ollama_code() {
+  docker exec -it ollama ollama run codestral:22b "$@"
+}
+
+do_ollama_pull() {
+  docker exec ollama ollama pull "$1"
+}
+
+do_ollama_rm() {
+  docker exec ollama ollama rm "$1"
+}
+
+# ── Argument Parsing ───────────────────────────────────────────────────
+case "${1:-all}" in
+  # Status views
+  health|ping)     show_health; exit ;;
+  uptime)          show_uptime; exit ;;
+  stacks)          show_stacks; exit ;;
+  containers)      show_containers; exit ;;
+  resources)       show_resources; exit ;;
+  endpoints)       show_endpoints; exit ;;
+  models)          show_models; exit ;;
+  json)            show_json; exit ;;
+  vectordbs)       show_vectordbs; exit ;;
+  disk)            show_disk; exit ;;
+  mem)             show_mem; exit ;;
+  cpu)             show_cpu; exit ;;
+  gpu)             show_gpu; exit ;;
+  net)             show_net; exit ;;
+  ps)              show_ps; exit ;;
+  ps-running)      show_ps_running; exit ;;
+  ps-by-stack)     show_ps_by_stack; exit ;;
+  images)          show_images; exit ;;
+  dangling)        show_dangling "$2"; exit ;;
+  prune)           show_prune; exit ;;
+  watch)           exec bash -c 'while true; do clear; cf all; echo; echo -e "\033[2m  Press Ctrl+C to exit. Refreshing every 5s...\033[0m"; sleep 5; done' ;;
+  # Lifecycle
+  up)              _do_up "$2"; exit ;;
+  down)            _do_down "$2"; exit ;;
+  restart)         _do_restart "$2"; exit ;;
+  pull)            _do_pull "$2"; exit ;;
+  logs)            shift; _do_logs "$@"; exit ;;
+  logs-since)      shift; _do_logs_since "$@"; exit ;;
+  restart-svc)     _do_restart_svc "$2"; exit ;;
+  stop-svc)        _do_stop_svc "$2"; exit ;;
+  start-svc)       _do_start_svc "$2"; exit ;;
+  # Ollama
+  llm)             shift; do_ollama "$@"; exit ;;
+  llm-list)        do_ollama_list; exit ;;
+  llm-ps)          do_ollama_ps; exit ;;
+  llm-chat)        shift; do_ollama_chat "$@"; exit ;;
+  llm-think)       shift; do_ollama_think "$@"; exit ;;
+  llm-big)         shift; do_ollama_big "$@"; exit ;;
+  llm-code)        shift; do_ollama_code "$@"; exit ;;
+  llm-pull)        do_ollama_pull "$2"; exit ;;
+  llm-rm)          do_ollama_rm "$2"; exit ;;
+  # Dashed flags
+  all)             show_all ;;
+  --all)           show_all ;;
+  --help|-h)
+    echo "Usage: cf [SUBCOMMAND]"
+    echo ""
+    echo "Status:"
+    echo "  (none)          Full dashboard"
+    echo "  health|ping     HTTP probes (24 endpoints)"
+    echo "  uptime          Per-container uptime + health"
+    echo "  stacks          Compose project summary"
+    echo "  containers      Container details"
+    echo "  vectordbs       Vector DB status + collections"
+    echo "  endpoints       Service URLs"
+    echo "  models          Ollama model info"
+    echo "  ps              Container listing"
+    echo "  ps-running      Running only"
+    echo "  ps-by-stack     Grouped by project"
+    echo "  resources       System overview"
+    echo "  disk|mem|cpu|gpu  Resource views"
+    echo "  net             Network info"
+    echo "  images          Docker images"
+    echo "  dangling        Dangling images"
+    echo "  json            Machine-readable output"
+    echo "  watch           Live auto-refresh (5s)"
+    echo ""
+    echo "Lifecycle:"
+    echo "  up [stack]      Start all or: core openrag expand serena scrutiny openspace vectordbs ai-apps ai-tools"
+    echo "  down [stack]    Stop"
+    echo "  restart [stack] Stop + start"
+    echo "  pull [stack]    Pull latest images"
+    echo "  logs <svc>      Tail logs"
+    echo "  logs-since <svc> <time>  Logs since"
+    echo "  restart-svc <svc>"
+    echo "  stop-svc <svc>"
+    echo "  start-svc <svc>"
+    echo "  prune           Prune unused images/cache"
+    echo ""
+    echo "Ollama:"
+    echo "  llm <args>      Run ollama command"
+    echo "  llm-list        List models"
+    echo "  llm-ps          Running models"
+    echo "  llm-chat        qwen3.5:4b"
+    echo "  llm-think       deepseek-r1:8b"
+    echo "  llm-big         qwen3.5:70b"
+    echo "  llm-code        codestral:22b"
+    echo "  llm-pull <model>"
+    echo "  llm-rm <model>"
+    ;;
+  *)
+    echo "Unknown: $1"
+    echo "Run: cf --help"
+    exit 1
+    ;;
+esac

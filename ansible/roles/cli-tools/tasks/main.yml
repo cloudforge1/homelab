@@ -1,0 +1,463 @@
+---
+- name: Ensure local state and bin directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ local_user }}"
+    group: "{{ local_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ log_file | dirname }}", mode: "0755" }
+    - { path: "{{ local_bin_dir }}", mode: "0755" }
+    - { path: "{{ shell_tools_init_file | dirname }}", mode: "0755" }
+  tags: [setup]
+
+- name: Install terminal productivity tools from APT
+  ansible.builtin.apt:
+    name: "{{ terminal_tools_apt_packages }}"
+    state: present
+    update_cache: yes
+  when: enable_terminal_tools | default(true) | bool
+  tags: [terminal-tools, apt-tools]
+
+- name: Check for Debian fdfind alias
+  ansible.builtin.stat:
+    path: /usr/bin/fdfind
+  register: fdfind_binary
+  when: enable_terminal_tools | default(true) | bool
+  tags: [terminal-tools, apt-tools]
+
+- name: Expose fd binary under canonical name
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: /usr/local/bin/fd
+    state: link
+  when:
+    - enable_terminal_tools | default(true) | bool
+    - fdfind_binary.stat.exists | default(false)
+  tags: [terminal-tools, apt-tools]
+
+- name: Check for Debian batcat alias
+  ansible.builtin.stat:
+    path: /usr/bin/batcat
+  register: batcat_binary
+  when: enable_terminal_tools | default(true) | bool
+  tags: [terminal-tools, apt-tools]
+
+- name: Expose bat binary under canonical name
+  ansible.builtin.file:
+    src: /usr/bin/batcat
+    dest: /usr/local/bin/bat
+    state: link
+  when:
+    - enable_terminal_tools | default(true) | bool
+    - batcat_binary.stat.exists | default(false)
+  tags: [terminal-tools, apt-tools]
+
+- name: Check if rustc exists
+  ansible.builtin.command: rustc --version
+  register: rust_version
+  failed_when: false
+  changed_when: false
+  tags: [rust]
+
+- name: Install Rust via rustup
+  ansible.builtin.shell: |
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  args:
+    creates: "{{ local_home }}/.cargo/bin/rustc"
+  become_user: "{{ local_user }}"
+  when: enable_rust | default(enable_zeroclaw | default(true)) | bool and rust_version.rc != 0
+  tags: [rust]
+
+- name: Check if fnm exists
+  ansible.builtin.command: "{{ fnm_install_dir }}/fnm --version"
+  register: fnm_version
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  tags: [nodejs, fnm]
+
+- name: Install fnm
+  ansible.builtin.shell: |
+    curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir "{{ fnm_install_dir }}" --skip-shell
+  args:
+    creates: "{{ fnm_install_dir }}/fnm"
+  become_user: "{{ local_user }}"
+  when: enable_fnm | default(true) | bool and fnm_version.rc != 0
+  tags: [nodejs, fnm]
+
+- name: Install managed shell tools init snippet
+  ansible.builtin.copy:
+    dest: "{{ shell_tools_init_file }}"
+    owner: "{{ local_user }}"
+    group: "{{ local_user }}"
+    mode: '0644'
+    content: |
+      export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/fnm:$PATH"
+
+      if command -v fnm >/dev/null 2>&1; then
+          eval "$(fnm env --use-on-cd --shell bash)"
+      fi
+
+      if command -v zoxide >/dev/null 2>&1; then
+          eval "$(zoxide init bash)"
+      fi
+
+      if command -v hstr >/dev/null 2>&1; then
+          alias hh='hstr'
+      fi
+  tags: [shell, terminal-tools, nodejs]
+
+- name: Source managed shell tools init from bashrc
+  ansible.builtin.blockinfile:
+    path: "{{ local_home }}/.bashrc"
+    owner: "{{ local_user }}"
+    group: "{{ local_user }}"
+    create: true
+    marker: "# {mark} CLOUDFORGE SHELL TOOLS"
+    block: |
+      [ -f "$HOME/.config/cloudforge/shell-tools.sh" ] && . "$HOME/.config/cloudforge/shell-tools.sh"
+  become_user: "{{ local_user }}"
+  tags: [shell, terminal-tools, nodejs]
+
+- name: Check if fnm-managed Node.js version exists
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm list | grep -Eq 'v{{ fnm_node_version }}([.]|$)'
+  register: fnm_node_version_check
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  when: enable_fnm | default(true) | bool
+  tags: [nodejs, fnm]
+
+- name: Install default Node.js version with fnm
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm install {{ fnm_node_version }}
+    fnm default {{ fnm_node_version }}
+  become_user: "{{ local_user }}"
+  when:
+    - enable_fnm | default(true) | bool
+    - fnm_node_version_check.rc != 0
+  tags: [nodejs, fnm]
+
+- name: Repair npm if bundled modules are corrupt
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    NPM_DIR="$(dirname "$(which npm)")/../lib/node_modules/npm"
+    cd "$NPM_DIR" && node bin/npm-cli.js install --no-audit --no-fund 2>/dev/null
+  become_user: "{{ local_user }}"
+  register: npm_repair
+  changed_when: npm_repair.rc == 0
+  failed_when: false
+  when: enable_fnm | default(true) | bool
+  tags: [nodejs, fnm]
+
+- name: Update npm under fnm-managed Node.js
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    npm install -g npm@latest
+  become_user: "{{ local_user }}"
+  changed_when: false
+  failed_when: false
+  when: enable_fnm | default(true) | bool
+  tags: [nodejs, fnm]
+
+- name: Check if snitch exists
+  ansible.builtin.command: "{{ local_bin_dir }}/snitch --version"
+  register: snitch_version
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  when: enable_snitch | default(true) | bool
+  tags: [terminal-tools, snitch]
+
+- name: Install snitch via upstream installer
+  ansible.builtin.shell: |
+    curl -sSL https://raw.githubusercontent.com/karol-broda/snitch/master/install.sh | INSTALL_DIR="{{ local_bin_dir }}" sh
+  args:
+    creates: "{{ local_bin_dir }}/snitch"
+  become_user: "{{ local_user }}"
+  when:
+    - enable_snitch | default(true) | bool
+    - snitch_version.rc != 0
+  tags: [terminal-tools, snitch]
+
+- name: Check if ZeroClaw is installed
+  ansible.builtin.command: zeroclaw --version
+  register: zeroclaw_version
+  failed_when: false
+  changed_when: false
+  when: enable_zeroclaw | default(true) | bool
+  tags: [zeroclaw]
+
+- name: Install ZeroClaw
+  block:
+    - name: Download and install ZeroClaw binary
+      ansible.builtin.get_url:
+        url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.5.5/zeroclaw-x86_64-unknown-linux-gnu.tar.gz"
+        dest: /tmp/zeroclaw.tar.gz
+        mode: '0644'
+
+    - name: Extract ZeroClaw
+      ansible.builtin.unarchive:
+        src: /tmp/zeroclaw.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    - name: Install ZeroClaw to /usr/local/bin
+      ansible.builtin.copy:
+        src: /tmp/zeroclaw
+        dest: /usr/local/bin/zeroclaw
+        mode: '0755'
+        remote_src: yes
+
+    - name: Create ZeroClaw config directory
+      ansible.builtin.file:
+        path: "{{ local_home }}/.zeroclaw"
+        state: directory
+        owner: "{{ local_user }}"
+        group: "{{ local_user }}"
+        mode: '0755'
+
+    - name: Create ZeroClaw config
+      ansible.builtin.copy:
+        dest: "{{ local_home }}/.zeroclaw/config.toml"
+        owner: "{{ local_user }}"
+        group: "{{ local_user }}"
+        mode: '0644'
+        content: |
+          default_provider = "ollama"
+
+          [providers.ollama]
+          kind = "ollama"
+          base_url = "http://127.0.0.1:11434"
+          model = "qwen3.5:4b"
+  when:
+    - enable_zeroclaw | default(true) | bool
+    - zeroclaw_version.rc != 0
+  tags: [zeroclaw]
+
+- name: Check if Claude Code is installed
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    claude --version
+  register: claude_version
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  when: enable_claude_code | default(true) | bool
+  tags: [claude, npm-tools]
+
+- name: Install Claude Code via npm
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    npm install -g @anthropic-ai/claude-code
+  become_user: "{{ local_user }}"
+  when:
+    - enable_claude_code | default(true) | bool
+    - claude_version.rc != 0
+  tags: [claude, npm-tools]
+
+- name: Check if MetaClaw is installed
+  ansible.builtin.command: metaclaw --version
+  register: metaclaw_version
+  failed_when: false
+  changed_when: false
+  when: enable_metaclaw | default(true) | bool
+  tags: [metaclaw, pip-tools]
+
+- name: Install MetaClaw via pip
+  ansible.builtin.pip:
+    name: metaclaw
+    state: present
+    extra_args: --break-system-packages
+  when:
+    - enable_metaclaw | default(true) | bool
+    - metaclaw_version.rc != 0
+  tags: [metaclaw, pip-tools]
+
+- name: Check if uv is installed
+  ansible.builtin.command: uv --version
+  register: uv_version
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  when: enable_uv | default(true) | bool
+  tags: [uv, pip-tools]
+
+- name: Install uv via official installer
+  ansible.builtin.shell: |
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  args:
+    creates: "{{ local_bin_dir }}/uv"
+  become_user: "{{ local_user }}"
+  when:
+    - enable_uv | default(true) | bool
+    - uv_version.rc != 0
+  tags: [uv, pip-tools]
+
+- name: Check if Gstack is installed
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    gstack --version
+  register: gstack_version
+  failed_when: false
+  changed_when: false
+  become_user: "{{ local_user }}"
+  when: enable_gstack | default(false) | bool
+  tags: [gstack, npm-tools]
+
+- name: Install Gstack via npm
+  ansible.builtin.shell: |
+    export PATH="{{ fnm_install_dir }}:$PATH"
+    eval "$(fnm env --shell bash)"
+    fnm use {{ fnm_node_version }} >/dev/null
+    npm install -g gstack
+  become_user: "{{ local_user }}"
+  when:
+    - enable_gstack | default(false) | bool
+    - gstack_version.rc != 0
+  tags: [gstack, npm-tools]
+
+- name: Check docling-serve service state
+  ansible.builtin.systemd:
+    name: docling-serve
+  register: docling_service
+  failed_when: false
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Ensure python3 venv support is installed for docling-serve
+  ansible.builtin.apt:
+    name: python3-venv
+    state: present
+    update_cache: yes
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Ensure docling-serve venv root exists
+  ansible.builtin.file:
+    path: "{{ docling_venv_dir | dirname }}"
+    state: directory
+    owner: "{{ local_user }}"
+    group: "{{ local_user }}"
+    mode: '0755'
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Ensure docling-serve venv tree is owned by service user
+  ansible.builtin.file:
+    path: "{{ docling_venv_dir | dirname }}"
+    owner: "{{ local_user }}"
+    group: "{{ local_user }}"
+    recurse: true
+  register: docling_tree_ownership
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Check for docling-serve virtualenv executable
+  ansible.builtin.stat:
+    path: "{{ docling_venv_dir }}/bin/docling-serve"
+  register: docling_bin_before
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Install docling-serve package into dedicated virtualenv
+  ansible.builtin.pip:
+    name: docling-serve
+    state: present
+    virtualenv: "{{ docling_venv_dir }}"
+    virtualenv_command: /usr/bin/python3 -m venv
+  become_user: "{{ local_user }}"
+  register: docling_install
+  when:
+    - enable_docling | default(true) | bool
+    - not (docling_bin_before.stat.exists | default(false))
+  tags: [docling, systemd]
+
+- name: Resolve docling-serve binary path
+  ansible.builtin.stat:
+    path: "{{ docling_venv_dir }}/bin/docling-serve"
+  register: docling_bin
+  changed_when: false
+  failed_when: false
+  when: enable_docling | default(true) | bool
+  tags: [docling, systemd]
+
+- name: Fail when docling-serve binary is unavailable after installation
+  ansible.builtin.fail:
+    msg: >-
+      docling-serve was requested, but the executable is still unavailable after pip installation.
+      The systemd unit will not be created until {{ docling_venv_dir }}/bin/docling-serve exists.
+  when:
+    - enable_docling | default(true) | bool
+    - not (docling_bin.stat.exists | default(false))
+  tags: [docling, systemd]
+
+- name: Create docling-serve systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docling-serve.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Docling document conversion REST server
+      After=network.target
+
+      [Service]
+      Type=simple
+      User={{ local_user }}
+      ExecStart={{ docling_venv_dir }}/bin/docling-serve run --host 0.0.0.0 --port {{ docling_port | default(5001) }}
+      Restart=on-failure
+      RestartSec=10
+      Environment=HOME={{ local_home }}
+      Environment=PATH={{ docling_venv_dir }}/bin:{{ local_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+      [Install]
+      WantedBy=multi-user.target
+  register: docling_unit
+  when:
+    - enable_docling | default(true) | bool
+    - docling_bin.stat.exists | default(false)
+  tags: [docling, systemd]
+
+- name: Enable and start docling-serve
+  ansible.builtin.systemd:
+    name: docling-serve
+    state: >-
+      {{ 'restarted' if ((docling_tree_ownership is defined and docling_tree_ownership.changed)
+      or (docling_install is defined and docling_install.changed)
+      or (docling_unit is defined and docling_unit.changed)) else 'started' }}
+    enabled: true
+    daemon_reload: true
+  when:
+    - enable_docling | default(true) | bool
+    - docling_bin.stat.exists | default(false)
+  tags: [docling, systemd]
+
+- name: Display CLI tooling summary
+  ansible.builtin.debug:
+    msg:
+      - "═══════════════════════════════════════════════════════════"
+      - "  cf0 CLI Tooling Complete"
+      - "═══════════════════════════════════════════════════════════"
+      - "  Node manager: fnm (Node {{ fnm_node_version }})"
+      - "  Terminal tools: hstr, snitch, fzf, ripgrep, fd, bat, eza, zoxide, btop, lazygit"
+      - "  CLI agents: Claude Code, ZeroClaw, MetaClaw, uv{{ ', Gstack' if (enable_gstack | default(false) | bool) else '' }}"
+      - "  docling-serve: {{ 'http://cf0:' ~ (docling_port | default(5001)) if (enable_docling | default(true) | bool) else 'disabled' }}"
+      - "═══════════════════════════════════════════════════════════"
+  tags: [always]

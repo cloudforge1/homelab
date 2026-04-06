@@ -1,0 +1,54 @@
+---
+# Deploy cf CLI and shell environment to the homelab host
+# Usage: ansible-playbook playbooks/deploy-monitor.yml
+
+- name: Deploy cf Monitor Scripts
+  hosts: cf0
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Ensure /opt/homelab/scripts exists
+      ansible.builtin.file:
+        path: /opt/homelab/scripts
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0755'
+
+    - name: Deploy cf CLI
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../scripts/cf"
+        dest: /opt/homelab/scripts/cf
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0755'
+
+    - name: Deploy .homelabrc
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../scripts/.homelabrc"
+        dest: /opt/homelab/.homelabrc
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
+
+    - name: Remove duplicate .homelabrc source lines from .bashrc
+      ansible.builtin.lineinfile:
+        path: "/home/{{ admin_user }}/.bashrc"
+        regexp: '.*homelab\.homelabrc|.*homelab/\.homelabrc'
+        state: absent
+
+    - name: Ensure ~/.bashrc sources .homelabrc (once)
+      ansible.builtin.lineinfile:
+        path: "/home/{{ admin_user }}/.bashrc"
+        line: "[ -f /opt/homelab/.homelabrc ] && . /opt/homelab/.homelabrc"
+        state: present
+        create: true
+        owner: "{{ admin_user }}"
+        group: "{{ admin_group }}"
+        mode: '0644'
+
+    - name: Verify cf is executable
+      ansible.builtin.file:
+        path: /opt/homelab/scripts/cf
+        mode: '0755'

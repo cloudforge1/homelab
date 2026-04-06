@@ -1,0 +1,30 @@
+# === CloudForge Homelab — Shell Environment ===
+# Installed to: /opt/homelab/.homelabrc
+# Sourced from ~/.bashrc: [ -f /opt/homelab/.homelabrc ] && . /opt/homelab/.homelabrc
+#
+# Only provides PATH and 3 entry-point aliases.
+# Everything else is a `cf` subcommand — no system commands shadowed.
+
+# ── Paths ──────────────────────────────────────────────────────────────
+export HOMELAB_DIR="/opt/homelab"
+export COMPOSE_DIR="${HOMELAB_DIR}/compose"
+export PATH="/opt/homelab/scripts:${PATH}"
+
+# ── Entry points (3 names, same binary) ───────────────────────────────
+alias ho='cf'
+alias homelab='cf'
+
+# ── Tab completion for cf subcommands ─────────────────────────────────
+_cf_completions() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  local cmds="health uptime stacks containers vectordbs watch ping disk mem cpu gpu net ps json endpoints models resources up down restart pull logs logs-since restart-svc stop-svc start-svc ps-running ps-by-stack images dangling prune llm llm-list llm-ps llm-chat llm-think llm-big llm-code llm-pull llm-rm help --help"
+  COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
+}
+complete -F _cf_completions cf
+complete -F _cf_completions ho
+complete -F _cf_completions homelab
+
+# ── Welcome ───────────────────────────────────────────────────────────
+if [[ "${HOMELAB_SILENT:-}" != "1" ]]; then
+  echo -e "\033[0;34m[homelab]\033[0m loaded. Run \033[0;32mcf\033[0m for dashboard, \033[0;32mcf health\033[0m for quick check."
+fi

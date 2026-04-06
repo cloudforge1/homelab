@@ -1,0 +1,8 @@
+---
+local_user: "{{ admin_user }}"
+local_home: "{{ admin_home }}"
+log_file: "{{ local_home }}/.local/state/cf0-llm-tools.log"
+local_bin_dir: "{{ local_home }}/.local/bin"
+fnm_install_dir: "{{ local_home }}/.local/share/fnm"
+shell_tools_init_file: "{{ local_home }}/.config/cloudforge/shell-tools.sh"
+docling_venv_dir: "{{ local_home }}/.local/share/docling-serve/venv"
